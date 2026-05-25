@@ -25,7 +25,7 @@
 
 	function setBusy(nextBusy) {
 		isBusy = nextBusy;
-		$('#ilswq-scan, #ilswq-convert, #ilswq-delivery-check, #ilswq-export, #ilswq-cleanup, #ilswq-settings-form button').prop('disabled', nextBusy);
+		$('#ilswq-scan, #ilswq-convert, #ilswq-validate-webp, #ilswq-export, #ilswq-cleanup, #ilswq-settings-form button').prop('disabled', nextBusy);
 		$('#ilswq-pause, #ilswq-stop').prop('disabled', !nextBusy);
 		updateButtons();
 	}
@@ -39,7 +39,7 @@
 
 		$('#ilswq-export').prop('disabled', isBusy || !hasRows);
 		$('#ilswq-convert').prop('disabled', isBusy || !hasEligible);
-		$('#ilswq-delivery-check').prop('disabled', isBusy || !hasConverted);
+		$('#ilswq-validate-webp').prop('disabled', isBusy || !hasConverted);
 		$('#ilswq-check-all').prop('disabled', isBusy || !hasRows);
 		$('#ilswq-resume').prop('disabled', isBusy || !resumeAction);
 	}
@@ -494,7 +494,7 @@
 		exportCsv();
 	});
 
-	$('#ilswq-delivery-check').on('click', function () {
+	$('#ilswq-validate-webp').on('click', function () {
 		var id = firstConvertedId();
 		if (!id) {
 			showNotice(ILSWQ_Admin.strings.noEligible, 'error');
@@ -504,10 +504,10 @@
 		clearNotice();
 		setBusy(true);
 
-		ajax('ilswq_delivery_check', {
+		ajax('ilswq_validate_webp', {
 			id: id
 		}).then(function (data) {
-			showNotice(data.message || ILSWQ_Admin.strings.deliveryPassed, 'success');
+			showNotice(data.message || ILSWQ_Admin.strings.validationPassed, 'success');
 		}).fail(showAjaxError).always(function () {
 			setBusy(false);
 		});

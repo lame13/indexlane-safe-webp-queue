@@ -86,7 +86,7 @@ Image conversion memory use depends on decoded pixels, not just compressed file 
 * Added stored WebP file map per attachment.
 * Added optional frontend serving for normal WordPress image output.
 * Added optional WebP generation for new uploads.
-* Added pause, stop, resume, result filters, and delivery check controls.
+* Added pause, stop, resume, result filters, and WebP validation controls.
 * Added generated WebP output validation.
 * Added stale and invalid existing WebP detection.
 * Stored new WebP maps with uploads-relative paths.

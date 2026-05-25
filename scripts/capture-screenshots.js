@@ -278,8 +278,8 @@ async function navigate(client, url) {
 		await client.send('Page.enable');
 		await client.send('Runtime.enable');
 		await client.send('Emulation.setDeviceMetricsOverride', {
-			width: 1440,
-			height: 960,
+			width: 1800,
+			height: 1000,
 			deviceScaleFactor: 1,
 			mobile: false,
 		});

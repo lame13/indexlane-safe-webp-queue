@@ -69,7 +69,7 @@ class ILSWQ_Plugin {
 		add_action( 'wp_ajax_ilswq_scan', array( $this, 'ajax_scan' ) );
 		add_action( 'wp_ajax_ilswq_convert', array( $this, 'ajax_convert' ) );
 		add_action( 'wp_ajax_ilswq_cleanup', array( $this, 'ajax_cleanup' ) );
-		add_action( 'wp_ajax_ilswq_delivery_check', array( $this, 'ajax_delivery_check' ) );
+		add_action( 'wp_ajax_ilswq_validate_webp', array( $this, 'ajax_validate_webp' ) );
 
 		add_filter( 'wp_get_attachment_image_src', array( 'ILSWQ_Serving', 'filter_attachment_image_src' ), 10, 4 );
 		add_filter( 'wp_calculate_image_srcset', array( 'ILSWQ_Serving', 'filter_image_srcset' ), 10, 5 );
@@ -153,7 +153,7 @@ class ILSWQ_Plugin {
 					'failed'         => __( 'Failed', 'indexlane-safe-webp-queue' ),
 					'paused'         => __( 'Queue paused.', 'indexlane-safe-webp-queue' ),
 					'stopped'        => __( 'Queue stopped.', 'indexlane-safe-webp-queue' ),
-					'deliveryPassed' => __( 'Delivery check passed.', 'indexlane-safe-webp-queue' ),
+					'validationPassed' => __( 'Generated WebP file is valid.', 'indexlane-safe-webp-queue' ),
 				),
 			)
 		);
@@ -241,7 +241,7 @@ class ILSWQ_Plugin {
 						<button type="button" class="button" id="ilswq-pause" disabled><?php esc_html_e( 'Pause', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-stop" disabled><?php esc_html_e( 'Stop', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-convert" disabled><?php esc_html_e( 'Convert Selected', 'indexlane-safe-webp-queue' ); ?></button>
-						<button type="button" class="button" id="ilswq-delivery-check" disabled><?php esc_html_e( 'Delivery Check', 'indexlane-safe-webp-queue' ); ?></button>
+						<button type="button" class="button" id="ilswq-validate-webp" disabled><?php esc_html_e( 'Validate WebP', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-export" disabled><?php esc_html_e( 'Export CSV', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button ilswq-danger" id="ilswq-cleanup"><?php esc_html_e( 'Delete Generated WebPs', 'indexlane-safe-webp-queue' ); ?></button>
 					</div>
@@ -377,18 +377,18 @@ class ILSWQ_Plugin {
 	}
 
 	/**
-	 * Run a delivery check for one attachment.
+	 * Validate one generated WebP attachment map.
 	 *
 	 * @return void
 	 */
-	public function ajax_delivery_check() {
+	public function ajax_validate_webp() {
 		$this->verify_ajax();
 
 		$attachment_id = isset( $_POST['id'] ) && is_scalar( $_POST['id'] ) ? absint( wp_unslash( $_POST['id'] ) ) : 0;
 		if ( $attachment_id <= 0 ) {
 			wp_send_json_error(
 				array(
-					'message' => __( 'No attachment selected for delivery check.', 'indexlane-safe-webp-queue' ),
+					'message' => __( 'No attachment selected for WebP validation.', 'indexlane-safe-webp-queue' ),
 				),
 				400
 			);
@@ -408,7 +408,7 @@ class ILSWQ_Plugin {
 			if ( is_array( $entry ) && ! empty( $entry['webp'] ) && file_exists( $entry['webp'] ) && ILSWQ_Scanner::is_valid_webp_file( $entry['webp'] ) ) {
 				wp_send_json_success(
 					array(
-						'message' => __( 'Generated WebP file exists and is valid.', 'indexlane-safe-webp-queue' ),
+					'message' => __( 'Generated WebP file exists and is valid.', 'indexlane-safe-webp-queue' ),
 					)
 				);
 			}
