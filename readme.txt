@@ -4,7 +4,7 @@ Tags: webp, image optimization, images, media library, performance
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 0.1.2
+Stable tag: 0.1.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -79,6 +79,13 @@ Image conversion memory use depends on decoded pixels, not just compressed file 
 4. Optional frontend serving and new-upload settings.
 
 == Changelog ==
+
+= 0.1.3 =
+
+* Renamed the generated-file check from Delivery Check to Validate WebP.
+* Added Mac/archive ZIP ignores to the repository.
+* Refreshed screenshots with safety defaults visible and the Reason column readable.
+* Widened the screenshot capture viewport for public plugin assets.
 
 = 0.1.2 =
 
