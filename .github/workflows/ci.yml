@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  php-lint:
+    name: PHP lint (${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php:
+          - '7.4'
+          - '8.0'
+          - '8.1'
+          - '8.2'
+          - '8.3'
+          - '8.4'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - name: Lint PHP files
+        run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
+
+  wordpress-activation:
+    name: WordPress activation (WP ${{ matrix.wordpress }}, PHP ${{ matrix.php }}, ${{ matrix.image_stack }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: '7.4'
+            wordpress: '6.0'
+            extensions: gd, mysqli
+            image_stack: gd
+          - php: '8.3'
+            wordpress: 'latest'
+            extensions: gd, mysqli
+            image_stack: gd
+          - php: '8.4'
+            wordpress: 'latest'
+            extensions: gd, mysqli
+            image_stack: gd
+          - php: '8.3'
+            wordpress: 'latest'
+            extensions: gd, imagick, mysqli
+            image_stack: imagick
+          - php: '8.4'
+            wordpress: 'latest'
+            extensions: gd, imagick, mysqli
+            image_stack: imagick
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: wordpress
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: ${{ matrix.extensions }}
+          tools: wp-cli
+          coverage: none
+
+      - name: Install WordPress
+        run: |
+          if [ "${{ matrix.wordpress }}" = "latest" ]; then
+            wp core download --path=/tmp/wp
+          else
+            wp core download --version="${{ matrix.wordpress }}" --path=/tmp/wp
+          fi
+          wp config create --dbname=wordpress --dbuser=root --dbpass=root --dbhost=127.0.0.1 --path=/tmp/wp
+          wp core install --url=http://example.test --title=Test --admin_user=admin --admin_password=password --admin_email=admin@example.test --path=/tmp/wp
+
+      - name: Copy plugin
+        run: |
+          mkdir -p /tmp/wp/wp-content/plugins/indexlane-safe-webp-queue
+          cp -R assets includes indexlane-safe-webp-queue.php readme.txt uninstall.php /tmp/wp/wp-content/plugins/indexlane-safe-webp-queue/
+
+      - name: Activate plugin
+        run: wp plugin activate indexlane-safe-webp-queue --path=/tmp/wp
+
+      - name: Run conversion smoke test
+        run: php tests/smoke-wordpress.php /tmp/wp
+
+  plugin-check:
+    name: WordPress Plugin Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run Plugin Check
+        uses: WordPress/plugin-check-action@v1

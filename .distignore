@@ -1,0 +1,10 @@
+.git
+.github
+.idea
+.DS_Store
+__MACOSX
+node_modules
+vendor
+tests
+scripts
+wporg-assets
