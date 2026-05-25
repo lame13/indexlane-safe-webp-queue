@@ -3,6 +3,7 @@
 .idea
 .DS_Store
 __MACOSX
+dist
 node_modules
 vendor
 tests

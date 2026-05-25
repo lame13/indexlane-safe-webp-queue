@@ -320,7 +320,9 @@
 	function cleanupQueue(totalDeleted, totalFailed) {
 		setProgress(ILSWQ_Admin.strings.cleanupRunning, totalDeleted + totalFailed, 0);
 
-		return ajax('ilswq_cleanup', {}).then(function (data) {
+		return ajax('ilswq_cleanup', {
+			reset: totalDeleted === 0 && totalFailed === 0 ? 1 : 0
+		}).then(function (data) {
 			totalDeleted += data.deleted || 0;
 			totalFailed += data.failed || 0;
 			setProgress(ILSWQ_Admin.strings.cleanupRunning, totalDeleted + totalFailed, 0);

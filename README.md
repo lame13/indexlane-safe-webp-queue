@@ -1,8 +1,10 @@
 # Safe WebP Queue
 
-Safe WebP Queue is a local WordPress WebP conversion plugin for cautious Media Library cleanup.
+Convert WordPress Media Library images and generated sizes to WebP locally.
 
-It scans JPEG and PNG attachments, estimates memory risk, converts selected originals and generated image sizes to sibling `.webp` files, keeps originals, and reports why each attachment converted, skipped, failed, or needs review.
+Safe WebP Queue runs inside wp-admin, checks server support first, converts in small batches, keeps originals, and shows why each image converted, skipped, failed, or needs review.
+
+It is for cautious local WebP conversion: no cloud service, no database URL rewrites, no original-file replacement.
 
 ## What it does
 

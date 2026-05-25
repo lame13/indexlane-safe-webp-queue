@@ -196,6 +196,7 @@ $settings['skip_larger'] = 0;
 $settings['serve_webp']  = 0;
 $settings['auto_uploads'] = 0;
 ILSWQ_Settings::save( $settings );
+delete_option( ILSWQ_OPTION_CLEANUP_PAGE );
 
 $scanner   = new ILSWQ_Scanner();
 $converter = new ILSWQ_Converter( $scanner );
@@ -233,7 +234,15 @@ foreach ( array_merge( $jpeg_map, $png_map, $auto_jpeg_map ) as $entry ) {
 	$webp_paths[] = $entry['webp'];
 }
 
-$converter->cleanup_generated( 10 );
+$cleanup_runs = 0;
+do {
+	$cleanup_result = $converter->cleanup_generated( 10 );
+	++$cleanup_runs;
+	if ( $cleanup_runs > 100 ) {
+		ilswq_smoke_fail( 'Cleanup did not finish within 100 batches.' );
+	}
+} while ( ! empty( $cleanup_result['hasMore'] ) );
+
 foreach ( $webp_paths as $path ) {
 	if ( file_exists( $path ) ) {
 		ilswq_smoke_fail( 'Cleanup left a generated WebP file behind.' );

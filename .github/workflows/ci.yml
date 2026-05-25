@@ -115,5 +115,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Build Plugin Check directory
+        run: |
+          mkdir -p /tmp/plugin-check/indexlane-safe-webp-queue
+          cp -R assets includes indexlane-safe-webp-queue.php readme.txt uninstall.php README.md screenshot-*.png /tmp/plugin-check/indexlane-safe-webp-queue/
+          sed -i '/^[[:space:]]*\* Update URI:/d' /tmp/plugin-check/indexlane-safe-webp-queue/indexlane-safe-webp-queue.php
+
       - name: Run Plugin Check
         uses: WordPress/plugin-check-action@v1
+        with:
+          build-dir: /tmp/plugin-check/indexlane-safe-webp-queue

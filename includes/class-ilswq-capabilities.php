@@ -45,11 +45,7 @@ class ILSWQ_Capabilities {
 	 * @return bool
 	 */
 	public static function is_writable_path( $path ) {
-		if ( function_exists( 'wp_is_writable' ) ) {
-			return wp_is_writable( $path );
-		}
-
-		return is_writable( $path );
+		return wp_is_writable( $path );
 	}
 
 	/**

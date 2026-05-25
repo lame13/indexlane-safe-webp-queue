@@ -4,7 +4,7 @@ Tags: webp, image optimization, images, media library, performance
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 0.2.0
+Stable tag: 0.1.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -80,7 +80,7 @@ Image conversion memory use depends on decoded pixels, not just compressed file 
 
 == Changelog ==
 
-= 0.2.0 =
+= 0.1.2 =
 
 * Added generated attachment size conversion.
 * Added stored WebP file map per attachment.
@@ -90,8 +90,10 @@ Image conversion memory use depends on decoded pixels, not just compressed file 
 * Added generated WebP output validation.
 * Added stale and invalid existing WebP detection.
 * Stored new WebP maps with uploads-relative paths.
+* Hardened uploads-directory validation before scan and conversion.
 * Hardened cleanup path validation.
 * Hardened AJAX settings and ID handling.
+* Added clean Plugin Check CI build handling and ignored IDE/build artifacts.
 * Removed full server paths from admin AJAX rows.
 * Lowered the max pixel setting ceiling.
 

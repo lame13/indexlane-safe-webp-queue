@@ -368,6 +368,11 @@ class ILSWQ_Plugin {
 	public function ajax_cleanup() {
 		$this->verify_ajax();
 
+		$reset = isset( $_POST['reset'] ) && is_scalar( $_POST['reset'] ) ? absint( wp_unslash( $_POST['reset'] ) ) : 0;
+		if ( $reset > 0 ) {
+			delete_option( ILSWQ_OPTION_CLEANUP_PAGE );
+		}
+
 		wp_send_json_success( $this->converter->cleanup_generated( 10 ) );
 	}
 

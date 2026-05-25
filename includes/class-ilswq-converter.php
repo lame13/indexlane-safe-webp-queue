@@ -148,6 +148,7 @@ class ILSWQ_Converter {
 	 */
 	public function cleanup_generated( $limit ) {
 		$limit = max( 1, min( 25, absint( $limit ) ) );
+		$page  = max( 1, absint( get_option( ILSWQ_OPTION_CLEANUP_PAGE, 1 ) ) );
 
 		$query = new WP_Query(
 			array(
@@ -155,18 +156,9 @@ class ILSWQ_Converter {
 				'post_status'    => 'inherit',
 				'fields'         => 'ids',
 				'posts_per_page' => $limit,
-				'meta_query'     => array(
-					'relation' => 'OR',
-					array(
-						'key'     => ILSWQ_META_WEBP_FILES,
-						'compare' => 'EXISTS',
-					),
-					array(
-						'key'     => ILSWQ_META_WEBP_PATH,
-						'compare' => 'EXISTS',
-					),
-				),
-				'no_found_rows'  => true,
+				'paged'          => $page,
+				'orderby'        => 'ID',
+				'order'          => 'ASC',
 			)
 		);
 
@@ -176,6 +168,10 @@ class ILSWQ_Converter {
 
 		foreach ( $query->posts as $attachment_id ) {
 			++$processed;
+
+			if ( ! $this->attachment_has_generated_meta( (int) $attachment_id ) ) {
+				continue;
+			}
 
 			$paths = $this->generated_paths_for_cleanup( (int) $attachment_id );
 			foreach ( $paths as $path ) {
@@ -198,11 +194,17 @@ class ILSWQ_Converter {
 			$this->delete_generated_meta( (int) $attachment_id );
 		}
 
+		if ( $page < (int) $query->max_num_pages ) {
+			update_option( ILSWQ_OPTION_CLEANUP_PAGE, $page + 1, false );
+		} else {
+			delete_option( ILSWQ_OPTION_CLEANUP_PAGE );
+		}
+
 		return array(
 			'processed' => $processed,
 			'deleted'   => $deleted,
 			'failed'    => $failed,
-			'hasMore'   => $processed === $limit,
+			'hasMore'   => $page < (int) $query->max_num_pages,
 		);
 	}
 
@@ -217,6 +219,10 @@ class ILSWQ_Converter {
 		$source_path = isset( $source['path'] ) ? wp_normalize_path( (string) $source['path'] ) : '';
 		if ( '' === $source_path || ! file_exists( $source_path ) ) {
 			return new WP_Error( 'ilswq_source_missing', __( 'File missing', 'indexlane-safe-webp-queue' ) );
+		}
+
+		if ( ! ILSWQ_Scanner::is_uploads_path( $source_path ) ) {
+			return new WP_Error( 'ilswq_source_outside_uploads', __( 'File is outside the uploads directory', 'indexlane-safe-webp-queue' ) );
 		}
 
 		$output_path = ILSWQ_Scanner::output_path( $source_path );
@@ -253,7 +259,7 @@ class ILSWQ_Converter {
 
 		$final_path = isset( $saved['path'] ) ? wp_normalize_path( $saved['path'] ) : $output_path;
 		if ( $final_path !== $output_path && file_exists( $final_path ) && ! file_exists( $output_path ) ) {
-			if ( ! rename( $final_path, $output_path ) ) {
+			if ( ! $this->move_generated_file( $final_path, $output_path ) ) {
 				wp_delete_file( $final_path );
 
 				return new WP_Error( 'ilswq_move_failed', __( 'Could not move generated WebP file', 'indexlane-safe-webp-queue' ) );
@@ -321,6 +327,27 @@ class ILSWQ_Converter {
 		}
 
 		return (int) $webp_size;
+	}
+
+	/**
+	 * Move a generated file through the WordPress filesystem layer.
+	 *
+	 * @param string $from Source path.
+	 * @param string $to Destination path.
+	 * @return bool
+	 */
+	private function move_generated_file( $from, $to ) {
+		global $wp_filesystem;
+
+		if ( ! function_exists( 'WP_Filesystem' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+
+		if ( ! WP_Filesystem() || ! is_object( $wp_filesystem ) ) {
+			return false;
+		}
+
+		return (bool) $wp_filesystem->move( $from, $to, false );
 	}
 
 	/**
@@ -454,6 +481,16 @@ class ILSWQ_Converter {
 		}
 
 		return array_values( array_unique( array_filter( $paths ) ) );
+	}
+
+	/**
+	 * Return true when an attachment has plugin-generated WebP metadata.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return bool
+	 */
+	private function attachment_has_generated_meta( $attachment_id ) {
+		return metadata_exists( 'post', $attachment_id, ILSWQ_META_WEBP_FILES ) || metadata_exists( 'post', $attachment_id, ILSWQ_META_WEBP_PATH );
 	}
 
 	/**

@@ -272,6 +272,31 @@ class ILSWQ_Scanner {
 	}
 
 	/**
+	 * Return true when a file path resolves inside the uploads directory.
+	 *
+	 * @param string $path File path.
+	 * @return bool
+	 */
+	public static function is_uploads_path( $path ) {
+		$uploads = wp_upload_dir();
+		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) || empty( $path ) ) {
+			return false;
+		}
+
+		$real_base = realpath( $uploads['basedir'] );
+		$real_path = realpath( dirname( $path ) );
+
+		if ( false === $real_base || false === $real_path ) {
+			return false;
+		}
+
+		$real_base = trailingslashit( wp_normalize_path( $real_base ) );
+		$real_path = trailingslashit( wp_normalize_path( $real_path ) );
+
+		return 0 === strpos( $real_path, $real_base );
+	}
+
+	/**
 	 * Build the plugin output path for a source file.
 	 *
 	 * @param string $source_file Source file path.
@@ -294,7 +319,7 @@ class ILSWQ_Scanner {
 		}
 
 		$path     = wp_normalize_path( $path );
-		$base_dir = untrailingslashit( wp_normalize_path( $uploads['basedir'] ) );
+		$base_dir = trailingslashit( wp_normalize_path( $uploads['basedir'] ) );
 
 		if ( 0 !== strpos( $path, $base_dir ) ) {
 			return '';
@@ -424,6 +449,10 @@ class ILSWQ_Scanner {
 
 		if ( ! is_readable( $file ) ) {
 			return $this->source_with_status( $source, 'Skipped', __( 'File is not readable', 'indexlane-safe-webp-queue' ), false );
+		}
+
+		if ( ! self::is_uploads_path( $file ) ) {
+			return $this->source_with_status( $source, 'Skipped', __( 'File is outside the uploads directory', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		$mime_type = isset( $source['mime_type'] ) ? (string) $source['mime_type'] : '';

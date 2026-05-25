@@ -14,3 +14,4 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 }
 
 delete_option( 'ilswq_settings' );
+delete_option( 'ilswq_cleanup_page' );
