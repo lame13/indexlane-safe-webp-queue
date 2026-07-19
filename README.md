@@ -13,6 +13,7 @@ It is for cautious local WebP conversion: no cloud service, no database URL rewr
 - Converts in small browser-driven batches.
 - Stores uploads-relative metadata for generated WebP files.
 - Detects stale or invalid generated WebP files.
+- Validates every plugin-generated WebP represented in the current report.
 - Exports the visible report as CSV.
 - Deletes plugin-generated WebP files on request.
 - Optionally serves generated WebP files in normal WordPress image output.
@@ -33,4 +34,4 @@ Copy the plugin into a WordPress install, activate it, then run:
 php tests/smoke-wordpress.php /path/to/wordpress
 ```
 
-The smoke test creates JPEG and transparent PNG fixtures, converts generated attachment sizes, validates WebP output, checks optional frontend serving, verifies uploads-relative metadata storage, checks automatic new-upload conversion, and confirms cleanup removes generated files.
+The smoke test creates repeatable JPEG and transparent PNG fixtures, converts generated attachment sizes, validates complete WebP maps, checks optional frontend serving, verifies uploads-relative metadata storage, checks automatic new-upload conversion, and confirms failed cleanup keeps ownership metadata until a successful retry.

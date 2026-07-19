@@ -353,6 +353,51 @@ class ILSWQ_Scanner {
 	}
 
 	/**
+	 * Validate every generated WebP entry stored for an attachment.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return array<string, int|bool>
+	 */
+	public static function validate_generated_files( $attachment_id ) {
+		$stored_map = get_post_meta( $attachment_id, ILSWQ_META_WEBP_FILES, true );
+		$has_map    = metadata_exists( 'post', $attachment_id, ILSWQ_META_WEBP_FILES );
+		$legacy     = (string) get_post_meta( $attachment_id, ILSWQ_META_WEBP_PATH, true );
+		$map        = self::get_webp_map( $attachment_id );
+
+		if ( is_array( $stored_map ) ) {
+			$total = count( $stored_map );
+		} elseif ( $has_map ) {
+			$total = 1;
+		} else {
+			$total = 0;
+		}
+
+		if ( '' !== $legacy && ( ! is_array( $stored_map ) || ! isset( $stored_map['full'] ) ) ) {
+			++$total;
+		}
+
+		$invalid = max( 0, $total - count( $map ) );
+		foreach ( $map as $entry ) {
+			$path = is_array( $entry ) && ! empty( $entry['webp'] ) ? wp_normalize_path( (string) $entry['webp'] ) : '';
+			if (
+				'' === $path ||
+				'.webp' !== substr( strtolower( $path ), -5 ) ||
+				! self::is_uploads_path( $path ) ||
+				! self::is_valid_webp_file( $path )
+			) {
+				++$invalid;
+			}
+		}
+
+		return array(
+			'has_files' => $total > 0,
+			'valid'     => $total > 0 && 0 === $invalid,
+			'total'     => $total,
+			'invalid'   => $invalid,
+		);
+	}
+
+	/**
 	 * Format bytes for display.
 	 *
 	 * @param int|float $bytes Bytes.
@@ -589,6 +634,7 @@ class ILSWQ_Scanner {
 			'source_count_label'     => '',
 			'eligible_source_count'  => 0,
 			'converted_source_count' => 0,
+			'generated_source_count' => 0,
 			'existing_source_count'  => 0,
 			'skipped_source_count'   => 0,
 			'status'                 => 'Skipped',
@@ -631,6 +677,9 @@ class ILSWQ_Scanner {
 		foreach ( $sources as $source ) {
 			$status = isset( $source['status'] ) ? (string) $source['status'] : 'Skipped';
 			$reason = isset( $source['reason'] ) ? (string) $source['reason'] : '';
+			if ( ! empty( $source['existing_plugin_webp_path'] ) ) {
+				++$row['generated_source_count'];
+			}
 
 			$row['original_size']    += isset( $source['original_size'] ) ? (int) $source['original_size'] : 0;
 			$row['estimated_memory']  = max( (int) $row['estimated_memory'], isset( $source['estimated_memory'] ) ? (int) $source['estimated_memory'] : 0 );

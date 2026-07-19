@@ -153,7 +153,12 @@ class ILSWQ_Plugin {
 					'failed'         => __( 'Failed', 'indexlane-safe-webp-queue' ),
 					'paused'         => __( 'Queue paused.', 'indexlane-safe-webp-queue' ),
 					'stopped'        => __( 'Queue stopped.', 'indexlane-safe-webp-queue' ),
-					'validationPassed' => __( 'Generated WebP file is valid.', 'indexlane-safe-webp-queue' ),
+					'validationRunning' => __( 'Validating generated WebP files...', 'indexlane-safe-webp-queue' ),
+					'validationPassed' => __( 'All generated WebP files in the current report are valid.', 'indexlane-safe-webp-queue' ),
+					'validationFailed' => __( 'Validation found missing or invalid generated WebP files.', 'indexlane-safe-webp-queue' ),
+					'validated'       => __( 'Validated', 'indexlane-safe-webp-queue' ),
+					'invalid'         => __( 'Invalid', 'indexlane-safe-webp-queue' ),
+					'missing'         => __( 'Missing maps', 'indexlane-safe-webp-queue' ),
 				),
 			)
 		);
@@ -384,6 +389,43 @@ class ILSWQ_Plugin {
 	public function ajax_validate_webp() {
 		$this->verify_ajax();
 
+		$raw_ids = isset( $_POST['ids'] ) && is_array( $_POST['ids'] ) ? wp_unslash( $_POST['ids'] ) : array();
+		$ids     = array();
+		foreach ( $raw_ids as $raw_id ) {
+			if ( is_scalar( $raw_id ) ) {
+				$attachment_id = absint( $raw_id );
+				if ( $attachment_id > 0 ) {
+					$ids[] = $attachment_id;
+				}
+			}
+		}
+
+		$ids = array_slice( array_values( array_unique( $ids ) ), 0, 10 );
+		if ( ! empty( $ids ) ) {
+			$validated = 0;
+			$invalid   = 0;
+			$missing   = 0;
+
+			foreach ( $ids as $attachment_id ) {
+				$result = ILSWQ_Scanner::validate_generated_files( $attachment_id );
+				if ( empty( $result['has_files'] ) ) {
+					++$missing;
+					continue;
+				}
+
+				$validated += max( 0, (int) $result['total'] - (int) $result['invalid'] );
+				$invalid   += (int) $result['invalid'];
+			}
+
+			wp_send_json_success(
+				array(
+					'validated' => $validated,
+					'invalid'   => $invalid,
+					'missing'   => $missing,
+				)
+			);
+		}
+
 		$attachment_id = isset( $_POST['id'] ) && is_scalar( $_POST['id'] ) ? absint( wp_unslash( $_POST['id'] ) ) : 0;
 		if ( $attachment_id <= 0 ) {
 			wp_send_json_error(
@@ -394,8 +436,8 @@ class ILSWQ_Plugin {
 			);
 		}
 
-		$map = ILSWQ_Scanner::get_webp_map( $attachment_id );
-		if ( empty( $map ) ) {
+		$result = ILSWQ_Scanner::validate_generated_files( $attachment_id );
+		if ( empty( $result['has_files'] ) ) {
 			wp_send_json_error(
 				array(
 					'message' => __( 'No generated WebP files were found for this attachment.', 'indexlane-safe-webp-queue' ),
@@ -404,19 +446,22 @@ class ILSWQ_Plugin {
 			);
 		}
 
-		foreach ( $map as $entry ) {
-			if ( is_array( $entry ) && ! empty( $entry['webp'] ) && file_exists( $entry['webp'] ) && ILSWQ_Scanner::is_valid_webp_file( $entry['webp'] ) ) {
-				wp_send_json_success(
-					array(
-					'message' => __( 'Generated WebP file exists and is valid.', 'indexlane-safe-webp-queue' ),
-					)
-				);
-			}
+		if ( ! empty( $result['valid'] ) ) {
+			wp_send_json_success(
+				array(
+					'message' => __( 'All generated WebP files for this attachment exist and are valid.', 'indexlane-safe-webp-queue' ),
+				)
+			);
 		}
 
 		wp_send_json_error(
 			array(
-				'message' => __( 'Generated WebP files are missing or invalid.', 'indexlane-safe-webp-queue' ),
+				'message' => sprintf(
+					/* translators: 1: invalid file count, 2: stored file count. */
+					__( '%1$d of %2$d generated WebP files are missing or invalid.', 'indexlane-safe-webp-queue' ),
+					(int) $result['invalid'],
+					(int) $result['total']
+				),
 			),
 			500
 		);

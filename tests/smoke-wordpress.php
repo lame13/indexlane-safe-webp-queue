@@ -180,9 +180,9 @@ if ( ! empty( $uploads['error'] ) ) {
 	ilswq_smoke_fail( $uploads['error'] );
 }
 
-$jpeg_path      = trailingslashit( $uploads['path'] ) . 'ilswq-smoke-photo.jpg';
-$png_path       = trailingslashit( $uploads['path'] ) . 'ilswq-smoke-transparent.png';
-$auto_jpeg_path = trailingslashit( $uploads['path'] ) . 'ilswq-smoke-auto-photo.jpg';
+$jpeg_path      = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-photo.jpg' );
+$png_path       = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-transparent.png' );
+$auto_jpeg_path = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-auto-photo.jpg' );
 
 ilswq_smoke_create_jpeg( $jpeg_path );
 ilswq_smoke_create_png( $png_path );
@@ -206,6 +206,30 @@ $converter->convert_attachment( $png_id, $settings );
 
 $jpeg_map = ilswq_smoke_validate_map( $jpeg_id, 'JPEG' );
 $png_map  = ilswq_smoke_validate_map( $png_id, 'PNG' );
+
+$validation = ILSWQ_Scanner::validate_generated_files( $jpeg_id );
+if ( empty( $validation['valid'] ) || count( $jpeg_map ) !== (int) $validation['total'] ) {
+	ilswq_smoke_fail( 'Complete WebP validation rejected a valid generated map.' );
+}
+
+$validation_keys = array_keys( $jpeg_map );
+$last_key        = end( $validation_keys );
+$corrupt_path    = $jpeg_map[ $last_key ]['webp'];
+$valid_contents  = file_get_contents( $corrupt_path );
+if ( false === $valid_contents || false === file_put_contents( $corrupt_path, 'not a WebP image' ) ) {
+	ilswq_smoke_fail( 'Could not prepare the validation failure fixture.' );
+}
+
+clearstatcache( true, $corrupt_path );
+$validation = ILSWQ_Scanner::validate_generated_files( $jpeg_id );
+if ( ! empty( $validation['valid'] ) || (int) $validation['invalid'] < 1 ) {
+	ilswq_smoke_fail( 'Complete WebP validation passed when one stored file was invalid.' );
+}
+
+if ( false === file_put_contents( $corrupt_path, $valid_contents ) ) {
+	ilswq_smoke_fail( 'Could not restore the validation fixture.' );
+}
+clearstatcache( true, $corrupt_path );
 
 ilswq_smoke_validate_relative_storage( $jpeg_id, 'JPEG' );
 ilswq_smoke_validate_relative_storage( $png_id, 'PNG' );
@@ -234,14 +258,49 @@ foreach ( array_merge( $jpeg_map, $png_map, $auto_jpeg_map ) as $entry ) {
 	$webp_paths[] = $entry['webp'];
 }
 
+$blocked_path   = $jpeg_map['full']['webp'];
+$block_deletion = static function ( $delete_path ) use ( $blocked_path ) {
+	if ( wp_normalize_path( $delete_path ) === wp_normalize_path( $blocked_path ) ) {
+		return $delete_path . '.blocked';
+	}
+
+	return $delete_path;
+};
+add_filter( 'wp_delete_file', $block_deletion );
+
 $cleanup_runs = 0;
+$cleanup_failed = 0;
 do {
 	$cleanup_result = $converter->cleanup_generated( 10 );
+	$cleanup_failed += isset( $cleanup_result['failed'] ) ? (int) $cleanup_result['failed'] : 0;
 	++$cleanup_runs;
 	if ( $cleanup_runs > 100 ) {
 		ilswq_smoke_fail( 'Cleanup did not finish within 100 batches.' );
 	}
 } while ( ! empty( $cleanup_result['hasMore'] ) );
+
+remove_filter( 'wp_delete_file', $block_deletion );
+
+if ( $cleanup_failed < 1 || ! file_exists( $blocked_path ) ) {
+	ilswq_smoke_fail( 'Cleanup did not report the simulated file deletion failure.' );
+}
+
+if ( ! metadata_exists( 'post', $jpeg_id, ILSWQ_META_WEBP_FILES ) ) {
+	ilswq_smoke_fail( 'Cleanup discarded generated-file ownership after deletion failed.' );
+}
+
+$cleanup_runs = 0;
+do {
+	$cleanup_result = $converter->cleanup_generated( 10 );
+	++$cleanup_runs;
+	if ( $cleanup_runs > 100 ) {
+		ilswq_smoke_fail( 'Retry cleanup did not finish within 100 batches.' );
+	}
+} while ( ! empty( $cleanup_result['hasMore'] ) );
+
+if ( metadata_exists( 'post', $jpeg_id, ILSWQ_META_WEBP_FILES ) ) {
+	ilswq_smoke_fail( 'Retry cleanup did not clear generated-file ownership after deletion succeeded.' );
+}
 
 foreach ( $webp_paths as $path ) {
 	if ( file_exists( $path ) ) {

@@ -34,7 +34,7 @@
 		var hasRows = rows.length > 0;
 		var hasEligible = getSelectedEligibleIds().length > 0;
 		var hasConverted = rows.some(function (row) {
-			return row.status === 'Converted' || row.status === 'Needs review';
+			return (row.generated_source_count || 0) > 0;
 		});
 
 		$('#ilswq-export').prop('disabled', isBusy || !hasRows);
@@ -78,6 +78,10 @@
 
 	function csvEscape(value) {
 		var stringValue = String(value === null || value === undefined ? '' : value);
+		if (/^(?:[=+\-@\t\r]|\s+[=+\-@])/.test(stringValue)) {
+			stringValue = "'" + stringValue;
+		}
+
 		if (/[",\r\n]/.test(stringValue)) {
 			return '"' + stringValue.replace(/"/g, '""') + '"';
 		}
@@ -200,15 +204,14 @@
 		}).get();
 	}
 
-	function firstConvertedId() {
-		var found = null;
-		$.each(rows, function (_, row) {
-			if (found === null && (row.status === 'Converted' || row.status === 'Needs review')) {
-				found = parseInt(row.id, 10);
-			}
+	function generatedAttachmentIds() {
+		return rows.filter(function (row) {
+			return (row.generated_source_count || 0) > 0;
+		}).map(function (row) {
+			return parseInt(row.id, 10);
+		}).filter(function (id) {
+			return id > 0;
 		});
-
-		return found;
 	}
 
 	function applyFilter() {
@@ -317,24 +320,46 @@
 		});
 	}
 
-	function cleanupQueue(totalDeleted, totalFailed) {
+	function cleanupQueue(totalDeleted, totalFailed, reset) {
 		setProgress(ILSWQ_Admin.strings.cleanupRunning, totalDeleted + totalFailed, 0);
 
 		return ajax('ilswq_cleanup', {
-			reset: totalDeleted === 0 && totalFailed === 0 ? 1 : 0
+			reset: reset ? 1 : 0
 		}).then(function (data) {
 			totalDeleted += data.deleted || 0;
 			totalFailed += data.failed || 0;
 			setProgress(ILSWQ_Admin.strings.cleanupRunning, totalDeleted + totalFailed, 0);
 
 			if (data.hasMore) {
-				return cleanupQueue(totalDeleted, totalFailed);
+				return cleanupQueue(totalDeleted, totalFailed, false);
 			}
 
 			return {
 				deleted: totalDeleted,
 				failed: totalFailed
 			};
+		});
+	}
+
+	function validateQueue(ids, processed, total, result) {
+		var batch = ids.splice(0, 10);
+
+		if (!batch.length) {
+			return $.Deferred().resolve(result).promise();
+		}
+
+		setProgress(ILSWQ_Admin.strings.validationRunning, processed, total);
+
+		return ajax('ilswq_validate_webp', {
+			ids: batch
+		}).then(function (data) {
+			result.validated += data.validated || 0;
+			result.invalid += data.invalid || 0;
+			result.missing += data.missing || 0;
+			processed += batch.length;
+			setProgress(ILSWQ_Admin.strings.validationRunning, processed, total);
+
+			return validateQueue(ids, processed, total, result);
 		});
 	}
 
@@ -495,8 +520,8 @@
 	});
 
 	$('#ilswq-validate-webp').on('click', function () {
-		var id = firstConvertedId();
-		if (!id) {
+		var ids = generatedAttachmentIds();
+		if (!ids.length) {
 			showNotice(ILSWQ_Admin.strings.noEligible, 'error');
 			return;
 		}
@@ -504,10 +529,27 @@
 		clearNotice();
 		setBusy(true);
 
-		ajax('ilswq_validate_webp', {
-			id: id
-		}).then(function (data) {
-			showNotice(data.message || ILSWQ_Admin.strings.validationPassed, 'success');
+		validateQueue(ids, 0, ids.length, {
+			validated: 0,
+			invalid: 0,
+			missing: 0
+		}).then(function (result) {
+			if (result.invalid > 0 || result.missing > 0) {
+				showNotice(
+					ILSWQ_Admin.strings.validationFailed + ' ' +
+					ILSWQ_Admin.strings.validated + ': ' + result.validated + '. ' +
+					ILSWQ_Admin.strings.invalid + ': ' + result.invalid + '. ' +
+					ILSWQ_Admin.strings.missing + ': ' + result.missing + '.',
+					'error'
+				);
+				return;
+			}
+
+			showNotice(
+				ILSWQ_Admin.strings.validationPassed + ' ' +
+				ILSWQ_Admin.strings.validated + ': ' + result.validated + '.',
+				'success'
+			);
 		}).fail(showAjaxError).always(function () {
 			setBusy(false);
 		});
@@ -521,7 +563,7 @@
 		clearNotice();
 		setBusy(true);
 
-		cleanupQueue(0, 0).then(function (result) {
+		cleanupQueue(0, 0, true).then(function (result) {
 			resetRows();
 			$('#ilswq-results-body').html(renderEmptyRow());
 			showNotice(

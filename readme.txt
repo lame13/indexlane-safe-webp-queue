@@ -4,7 +4,7 @@ Tags: webp, image optimization, images, media library, performance
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 0.1.3
+Stable tag: 0.1.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -79,6 +79,15 @@ Image conversion memory use depends on decoded pixels, not just compressed file 
 4. Optional frontend serving and new-upload settings.
 
 == Changelog ==
+
+= 0.1.4 =
+
+* Fixed cleanup pagination restarting when a page contains no generated files.
+* Preserved generated-file ownership metadata when physical deletion fails so cleanup can be retried safely.
+* Neutralized formula-like values in CSV exports to prevent spreadsheet formula injection.
+* Validated every stored WebP file across the current report instead of stopping after the first valid file.
+* Cached frontend generated-file inspection once per attachment and request.
+* Added regression coverage for admin cleanup, CSV export, complete validation, and failed cleanup retries.
 
 = 0.1.3 =
 

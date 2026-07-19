@@ -14,6 +14,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class ILSWQ_Serving {
 	/**
+	 * Valid generated entries cached for the current request.
+	 *
+	 * @var array<int, array<string, array<string, mixed>>>
+	 */
+	private static $entry_cache = array();
+
+	/**
 	 * Filter wp_get_attachment_image_src output.
 	 *
 	 * @param array<int, mixed>|false $image Image data.
@@ -114,6 +121,10 @@ class ILSWQ_Serving {
 	 * @return array<string, array<string, mixed>>
 	 */
 	private static function map_entries_with_urls( $attachment_id ) {
+		if ( isset( self::$entry_cache[ $attachment_id ] ) ) {
+			return self::$entry_cache[ $attachment_id ];
+		}
+
 		$map     = ILSWQ_Scanner::get_webp_map( $attachment_id );
 		$entries = array();
 
@@ -146,7 +157,9 @@ class ILSWQ_Serving {
 			$entries[ $name ]    = $entry;
 		}
 
-		return $entries;
+		self::$entry_cache[ $attachment_id ] = $entries;
+
+		return self::$entry_cache[ $attachment_id ];
 	}
 
 	/**

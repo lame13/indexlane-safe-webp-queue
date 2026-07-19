@@ -173,25 +173,32 @@ class ILSWQ_Converter {
 				continue;
 			}
 
-			$paths = $this->generated_paths_for_cleanup( (int) $attachment_id );
+			$paths             = $this->generated_paths_for_cleanup( (int) $attachment_id );
+			$attachment_failed = false;
 			foreach ( $paths as $path ) {
 				if ( ! $this->is_safe_generated_path( $path ) ) {
 					++$failed;
+					$attachment_failed = true;
 					continue;
 				}
 
-				if ( file_exists( $path ) ) {
+				$existed = file_exists( $path );
+				if ( $existed ) {
 					wp_delete_file( $path );
+					clearstatcache( true, $path );
 				}
 
 				if ( file_exists( $path ) ) {
 					++$failed;
-				} else {
+					$attachment_failed = true;
+				} elseif ( $existed ) {
 					++$deleted;
 				}
 			}
 
-			$this->delete_generated_meta( (int) $attachment_id );
+			if ( ! $attachment_failed ) {
+				$this->delete_generated_meta( (int) $attachment_id );
+			}
 		}
 
 		if ( $page < (int) $query->max_num_pages ) {
@@ -522,20 +529,36 @@ class ILSWQ_Converter {
 			return false;
 		}
 
+		$path = wp_normalize_path( $path );
 		if ( '.webp' !== substr( strtolower( $path ), -5 ) ) {
 			return false;
 		}
 
-		$real_path = realpath( $path );
 		$real_base = realpath( $uploads['basedir'] );
-
-		if ( false === $real_path || false === $real_base ) {
+		if ( false === $real_base ) {
 			return false;
 		}
 
-		$real_path = wp_normalize_path( $real_path );
 		$real_base = trailingslashit( wp_normalize_path( $real_base ) );
+		if ( file_exists( $path ) || is_link( $path ) ) {
+			$real_path = realpath( $path );
+			if ( false === $real_path ) {
+				return false;
+			}
 
-		return 0 === strpos( $real_path, $real_base );
+			return 0 === strpos( wp_normalize_path( $real_path ), $real_base );
+		}
+
+		$base_dir = trailingslashit( wp_normalize_path( $uploads['basedir'] ) );
+		if ( 0 !== strpos( $path, $base_dir ) ) {
+			return false;
+		}
+
+		$relative = substr( $path, strlen( $base_dir ) );
+		if ( '' === $relative || in_array( '..', explode( '/', $relative ), true ) ) {
+			return false;
+		}
+
+		return true;
 	}
 }
