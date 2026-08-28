@@ -88,6 +88,7 @@ class ILSWQ_Converter {
 		$map       = ILSWQ_Scanner::get_webp_map( $attachment_id );
 		$converted = 0;
 		$skipped   = array();
+		$conflicts = array();
 		$failures  = array();
 
 		foreach ( $sources as $source ) {
@@ -98,6 +99,11 @@ class ILSWQ_Converter {
 			$result = $this->convert_source( $source, $settings );
 			if ( is_wp_error( $result ) ) {
 				$failures[] = $result->get_error_message();
+				continue;
+			}
+
+			if ( ! empty( $result['conflict'] ) ) {
+				$conflicts[] = isset( $result['reason'] ) ? (string) $result['reason'] : __( 'A sibling WebP file conflicts with the generated output path.', 'indexlane-safe-webp-queue' );
 				continue;
 			}
 
@@ -122,7 +128,7 @@ class ILSWQ_Converter {
 		if ( ! empty( $failures ) ) {
 			return $this->scanner->with_status(
 				$row,
-				$converted > 0 ? 'Needs review' : 'Failed',
+				$converted > 0 ? 'needs-review' : 'failed',
 				sprintf(
 					/* translators: 1: failure count, 2: first failure reason. */
 					__( '%1$d file conversions failed. First failure: %2$s', 'indexlane-safe-webp-queue' ),
@@ -133,8 +139,12 @@ class ILSWQ_Converter {
 			);
 		}
 
+		if ( ! empty( $conflicts ) ) {
+			return $this->scanner->with_status( $row, 'conflict', $conflicts[0], ! empty( $row['eligible'] ) );
+		}
+
 		if ( 0 === $converted && ! empty( $skipped ) ) {
-			return $this->scanner->with_status( $row, 'Skipped', $skipped[0], false );
+			return $this->scanner->with_status( $row, 'skipped', $skipped[0], false );
 		}
 
 		return $row;
@@ -233,6 +243,15 @@ class ILSWQ_Converter {
 		}
 
 		$output_path = ILSWQ_Scanner::output_path( $source_path );
+		$owned_path  = isset( $source['existing_plugin_webp_path'] ) ? wp_normalize_path( (string) $source['existing_plugin_webp_path'] ) : '';
+		$owns_output = $output_path === $owned_path;
+
+		if ( file_exists( $output_path ) && ! $owns_output ) {
+			return array(
+				'conflict' => true,
+				'reason'   => __( 'A sibling WebP file exists but is not owned by this plugin. Move or rename it before converting.', 'indexlane-safe-webp-queue' ),
+			);
+		}
 
 		if ( function_exists( 'wp_raise_memory_limit' ) ) {
 			wp_raise_memory_limit( 'image' );
@@ -255,45 +274,70 @@ class ILSWQ_Converter {
 			$editor->set_quality( $quality );
 		}
 
-		$saved = $editor->save( $output_path, 'image/webp' );
+		$temporary = $this->create_temporary_output( $output_path );
+		if ( is_wp_error( $temporary ) ) {
+			return $temporary;
+		}
+
+		$saved = $editor->save( $temporary['seed'], 'image/webp' );
 		if ( is_wp_error( $saved ) ) {
-			if ( file_exists( $output_path ) ) {
-				wp_delete_file( $output_path );
-			}
+			$this->delete_temporary_output( $temporary );
 
 			return $saved;
 		}
 
-		$final_path = isset( $saved['path'] ) ? wp_normalize_path( $saved['path'] ) : $output_path;
-		if ( $final_path !== $output_path && file_exists( $final_path ) && ! file_exists( $output_path ) ) {
-			if ( ! $this->move_generated_file( $final_path, $output_path ) ) {
-				wp_delete_file( $final_path );
+		$generated_path = isset( $saved['path'] ) ? wp_normalize_path( (string) $saved['path'] ) : '';
+		if ( $generated_path !== $temporary['output'] ) {
+			$this->delete_temporary_output( $temporary );
 
-				return new WP_Error( 'ilswq_move_failed', __( 'Could not move generated WebP file', 'indexlane-safe-webp-queue' ) );
-			}
-
-			$final_path = $output_path;
+			return new WP_Error( 'ilswq_unexpected_temporary_path', __( 'The image editor did not use the reserved temporary WebP path.', 'indexlane-safe-webp-queue' ) );
 		}
 
-		if ( ! file_exists( $final_path ) ) {
+		$this->delete_temporary_seed( $temporary );
+
+		if ( ! file_exists( $generated_path ) ) {
+			$this->delete_temporary_output( $temporary );
+
 			return new WP_Error( 'ilswq_conversion_failed', __( 'Conversion failed', 'indexlane-safe-webp-queue' ) );
 		}
 
-		$webp_size = $this->validate_webp_file( $final_path );
+		$webp_size = $this->validate_webp_file( $generated_path );
 		if ( is_wp_error( $webp_size ) ) {
-			wp_delete_file( $final_path );
+			$this->delete_temporary_output( $temporary );
 
 			return $webp_size;
 		}
 
 		$original_size = isset( $source['original_size'] ) ? (int) $source['original_size'] : 0;
 		if ( ! empty( $settings['skip_larger'] ) && $original_size > 0 && $webp_size >= $original_size ) {
-			wp_delete_file( $final_path );
+			$this->delete_temporary_output( $temporary );
 
 			return array(
 				'skipped' => true,
 				'reason'  => __( 'WebP larger than original', 'indexlane-safe-webp-queue' ),
 			);
+		}
+
+		clearstatcache( true, $output_path );
+		if ( file_exists( $output_path ) && ! $owns_output ) {
+			$this->delete_temporary_output( $temporary );
+
+			return array(
+				'conflict' => true,
+				'reason'   => __( 'A sibling WebP file appeared during conversion and was left unchanged.', 'indexlane-safe-webp-queue' ),
+			);
+		}
+
+		$replace_owned_output = $owns_output && file_exists( $output_path );
+		if ( ! $this->move_generated_file( $generated_path, $output_path, $replace_owned_output ) ) {
+			$this->delete_temporary_output( $temporary );
+
+			return new WP_Error( 'ilswq_move_failed', __( 'Could not install the validated WebP file.', 'indexlane-safe-webp-queue' ) );
+		}
+
+		clearstatcache( true, $output_path );
+		if ( ! file_exists( $output_path ) ) {
+			return new WP_Error( 'ilswq_install_failed', __( 'The validated WebP file could not be found after installation.', 'indexlane-safe-webp-queue' ) );
 		}
 
 		$editor_label = false !== strpos( $editor_class, 'Imagick' ) ? 'Imagick' : 'GD';
@@ -303,7 +347,7 @@ class ILSWQ_Converter {
 				'name'        => isset( $source['name'] ) ? sanitize_key( (string) $source['name'] ) : 'full',
 				'label'       => isset( $source['label'] ) ? (string) $source['label'] : '',
 				'source'      => $source_path,
-				'webp'        => $final_path,
+				'webp'        => $output_path,
 				'source_size' => $original_size,
 				'webp_size'   => $webp_size,
 				'width'       => isset( $source['width'] ) ? (int) $source['width'] : 0,
@@ -337,13 +381,76 @@ class ILSWQ_Converter {
 	}
 
 	/**
+	 * Reserve temporary paths beside the final WebP output.
+	 *
+	 * @param string $output_path Final WebP output path.
+	 * @return array<string, string>|WP_Error
+	 */
+	private function create_temporary_output( $output_path ) {
+		if ( ! function_exists( 'wp_tempnam' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+
+		$directory = trailingslashit( dirname( $output_path ) );
+		$seed      = wp_tempnam( $output_path, $directory );
+		$seed      = is_string( $seed ) ? wp_normalize_path( $seed ) : '';
+
+		if ( '' === $seed || ! file_exists( $seed ) || trailingslashit( dirname( $seed ) ) !== $directory ) {
+			if ( '' !== $seed && file_exists( $seed ) ) {
+				wp_delete_file( $seed );
+			}
+
+			return new WP_Error( 'ilswq_temp_failed', __( 'Could not reserve a temporary WebP file in the uploads directory.', 'indexlane-safe-webp-queue' ) );
+		}
+
+		$temporary_output = preg_replace( '/\.tmp$/i', '.webp', $seed );
+		if ( ! is_string( $temporary_output ) || $temporary_output === $seed || $temporary_output === $output_path ) {
+			wp_delete_file( $seed );
+
+			return new WP_Error( 'ilswq_temp_failed', __( 'Could not reserve a temporary WebP file in the uploads directory.', 'indexlane-safe-webp-queue' ) );
+		}
+
+		return array(
+			'seed'   => $seed,
+			'output' => wp_normalize_path( $temporary_output ),
+		);
+	}
+
+	/**
+	 * Delete the empty seed after the image editor has saved its WebP output.
+	 *
+	 * @param array<string, string> $temporary Temporary paths.
+	 * @return void
+	 */
+	private function delete_temporary_seed( $temporary ) {
+		if ( ! empty( $temporary['seed'] ) && file_exists( $temporary['seed'] ) ) {
+			wp_delete_file( $temporary['seed'] );
+		}
+	}
+
+	/**
+	 * Delete only temporary files reserved by this conversion attempt.
+	 *
+	 * @param array<string, string> $temporary Temporary paths.
+	 * @return void
+	 */
+	private function delete_temporary_output( $temporary ) {
+		foreach ( array( 'seed', 'output' ) as $key ) {
+			if ( ! empty( $temporary[ $key ] ) && file_exists( $temporary[ $key ] ) ) {
+				wp_delete_file( $temporary[ $key ] );
+			}
+		}
+	}
+
+	/**
 	 * Move a generated file through the WordPress filesystem layer.
 	 *
 	 * @param string $from Source path.
 	 * @param string $to Destination path.
+	 * @param bool   $overwrite Whether to replace an existing plugin-owned file.
 	 * @return bool
 	 */
-	private function move_generated_file( $from, $to ) {
+	private function move_generated_file( $from, $to, $overwrite ) {
 		global $wp_filesystem;
 
 		if ( ! function_exists( 'WP_Filesystem' ) ) {
@@ -354,7 +461,7 @@ class ILSWQ_Converter {
 			return false;
 		}
 
-		return (bool) $wp_filesystem->move( $from, $to, false );
+		return (bool) $wp_filesystem->move( $from, $to, (bool) $overwrite );
 	}
 
 	/**
@@ -422,21 +529,26 @@ class ILSWQ_Converter {
 	}
 
 	/**
-	 * Get a WordPress image editor that can write WebP, trying Imagick then GD.
+	 * Get a preferred WordPress image editor that can write WebP.
 	 *
 	 * @param string $source_path Source path.
 	 * @return WP_Image_Editor|WP_Error
 	 */
 	private function get_webp_editor( $source_path ) {
-		$editor_classes = array();
+		$available_classes = array();
 
 		if ( ILSWQ_Capabilities::imagick_can_write_webp() ) {
-			$editor_classes[] = 'WP_Image_Editor_Imagick';
+			$available_classes[] = 'WP_Image_Editor_Imagick';
 		}
 
 		if ( ILSWQ_Capabilities::gd_can_write_webp() ) {
-			$editor_classes[] = 'WP_Image_Editor_GD';
+			$available_classes[] = 'WP_Image_Editor_GD';
 		}
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- This is a WordPress core filter.
+		$preferred_classes = apply_filters( 'wp_image_editors', $available_classes );
+		$preferred_classes = is_array( $preferred_classes ) ? $preferred_classes : $available_classes;
+		$editor_classes    = array_values( array_intersect( $preferred_classes, $available_classes ) );
 
 		$last_error = null;
 

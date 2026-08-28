@@ -44,13 +44,13 @@ class ILSWQ_Settings {
 	}
 
 	/**
-	 * Read and sanitize settings from an AJAX request.
+	 * Read and sanitize settings from an unslashed AJAX request value.
 	 *
 	 * @param mixed $source Request value.
 	 * @return array<string, int>
 	 */
 	public static function from_request( $source ) {
-		$raw = is_array( $source ) ? wp_unslash( $source ) : array();
+		$raw = is_array( $source ) ? $source : array();
 
 		if ( ! isset( $raw['skip_larger'] ) ) {
 			$raw['skip_larger'] = 0;

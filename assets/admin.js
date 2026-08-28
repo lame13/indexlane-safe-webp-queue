@@ -89,6 +89,14 @@
 		return stringValue;
 	}
 
+	function formatString(template, values) {
+		var nextIndex = 0;
+		return String(template).replace(/%(?:(\d+)\$)?[sd]/g, function (_match, position) {
+			var index = position ? parseInt(position, 10) - 1 : nextIndex++;
+			return values[index] === undefined || values[index] === null ? '' : String(values[index]);
+		});
+	}
+
 	function resetRows() {
 		rows = [];
 		rowMap = {};
@@ -128,8 +136,12 @@
 	}
 
 	function renderRow(row) {
+		var selectionLabel = formatString(
+			ILSWQ_Admin.strings.selectAttachment,
+			[row.title || row.file || ('#' + row.id)]
+		);
 		var checkbox = row.eligible
-			? '<input type="checkbox" class="ilswq-row-check" value="' + escapeHtml(row.id) + '" checked aria-label="Select ' + escapeHtml(row.title || row.file || ('#' + row.id)) + '">'
+			? '<input type="checkbox" class="ilswq-row-check" value="' + escapeHtml(row.id) + '" checked aria-label="' + escapeHtml(selectionLabel) + '">'
 			: '';
 		var attachment = '<strong>#' + escapeHtml(row.id) + '</strong>';
 		var file = escapeHtml(row.file);
@@ -169,24 +181,28 @@
 			converted: 0,
 			skipped: 0,
 			failed: 0,
-			needsReview: 0
+			needsReview: 0,
+			conflict: 0
 		};
 
 		$.each(rows, function (_, row) {
 			if (row.eligible) {
 				counts.eligible++;
 			}
-			if (row.status === 'Converted') {
+			if (row.status_key === 'converted') {
 				counts.converted++;
 			}
-			if (row.status === 'Skipped' || row.status === 'Already exists') {
+			if (row.status_key === 'skipped' || row.status_key === 'already-exists') {
 				counts.skipped++;
 			}
-			if (row.status === 'Failed') {
+			if (row.status_key === 'failed') {
 				counts.failed++;
 			}
-			if (row.status === 'Needs review') {
+			if (row.status_key === 'needs-review') {
 				counts.needsReview++;
+			}
+			if (row.status_key === 'conflict') {
+				counts.conflict++;
 			}
 		});
 
@@ -196,6 +212,7 @@
 		$('#ilswq-count-skipped').text(counts.skipped);
 		$('#ilswq-count-failed').text(counts.failed);
 		$('#ilswq-count-needs-review').text(counts.needsReview);
+		$('#ilswq-count-conflict').text(counts.conflict);
 	}
 
 	function getSelectedEligibleIds() {
@@ -239,7 +256,7 @@
 
 		return $.post(ILSWQ_Admin.ajaxUrl, data).then(function (response) {
 			if (!response || !response.success) {
-				var message = response && response.data && response.data.message ? response.data.message : 'Request failed.';
+				var message = response && response.data && response.data.message ? response.data.message : ILSWQ_Admin.strings.requestFailed;
 				return $.Deferred().reject(message).promise();
 			}
 
@@ -409,21 +426,7 @@
 			return;
 		}
 
-		var headers = [
-			'Attachment ID',
-			'Title',
-			'File',
-			'Source Files',
-			'MIME Type',
-			'Dimensions',
-			'Original Size',
-			'Estimated Memory',
-			'WebP Size',
-			'Savings',
-			'Editor',
-			'Status',
-			'Reason'
-		];
+		var headers = ILSWQ_Admin.csvHeaders;
 		var lines = [headers.map(csvEscape).join(',')];
 
 		$.each(rows, function (_, row) {
@@ -536,18 +539,14 @@
 		}).then(function (result) {
 			if (result.invalid > 0 || result.missing > 0) {
 				showNotice(
-					ILSWQ_Admin.strings.validationFailed + ' ' +
-					ILSWQ_Admin.strings.validated + ': ' + result.validated + '. ' +
-					ILSWQ_Admin.strings.invalid + ': ' + result.invalid + '. ' +
-					ILSWQ_Admin.strings.missing + ': ' + result.missing + '.',
+					formatString(ILSWQ_Admin.strings.validationFailed, [result.validated, result.invalid, result.missing]),
 					'error'
 				);
 				return;
 			}
 
 			showNotice(
-				ILSWQ_Admin.strings.validationPassed + ' ' +
-				ILSWQ_Admin.strings.validated + ': ' + result.validated + '.',
+				formatString(ILSWQ_Admin.strings.validationPassed, [result.validated]),
 				'success'
 			);
 		}).fail(showAjaxError).always(function () {
@@ -567,10 +566,7 @@
 			resetRows();
 			$('#ilswq-results-body').html(renderEmptyRow());
 			showNotice(
-				ILSWQ_Admin.strings.cleanupDone + ' ' +
-				ILSWQ_Admin.strings.deleted + ': ' + result.deleted + '. ' +
-				ILSWQ_Admin.strings.failed + ': ' + result.failed + '. ' +
-				ILSWQ_Admin.strings.cleanupRefresh,
+				formatString(ILSWQ_Admin.strings.cleanupSummary, [result.deleted, result.failed]),
 				'success'
 			);
 		}).fail(function (message) {

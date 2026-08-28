@@ -34,6 +34,28 @@ if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
 	exit( 2 );
 }
 
+$plugin_data = get_plugin_data( WP_PLUGIN_DIR . '/indexlane-safe-webp-queue/indexlane-safe-webp-queue.php', false, false );
+if ( 'IndexLane Safe WebP Queue' !== $plugin_data['Name'] || '0.1.5' !== $plugin_data['Version'] || ! empty( $plugin_data['UpdateURI'] ) ) {
+	fwrite( STDERR, "Release plugin metadata does not match 0.1.5.\n" );
+	exit( 1 );
+}
+
+$expected_editor = trim( (string) getenv( 'ILSWQ_SMOKE_EDITOR' ) );
+if ( '' !== $expected_editor ) {
+	$expected_editor_class = 'Imagick' === $expected_editor ? 'WP_Image_Editor_Imagick' : ( 'GD' === $expected_editor ? 'WP_Image_Editor_GD' : '' );
+	if ( '' === $expected_editor_class || ! ILSWQ_Capabilities::editor_class_supports_webp( $expected_editor_class ) ) {
+		fwrite( STDERR, "Requested WebP editor is unavailable: {$expected_editor}.\n" );
+		exit( 2 );
+	}
+
+	add_filter(
+		'wp_image_editors',
+		static function () use ( $expected_editor_class ) {
+			return array( $expected_editor_class );
+		}
+	);
+}
+
 /**
  * Fail the smoke test.
  *
@@ -90,9 +112,10 @@ function ilswq_smoke_create_png( $path ) {
  *
  * @param string $path Path.
  * @param string $mime MIME type.
+ * @param bool   $generate_metadata Whether to generate image sub-sizes.
  * @return int
  */
-function ilswq_smoke_insert_attachment( $path, $mime ) {
+function ilswq_smoke_insert_attachment( $path, $mime, $generate_metadata = true ) {
 	$attachment_id = wp_insert_attachment(
 		array(
 			'post_mime_type' => $mime,
@@ -106,8 +129,10 @@ function ilswq_smoke_insert_attachment( $path, $mime ) {
 		ilswq_smoke_fail( 'Could not insert attachment.' );
 	}
 
-	$metadata = wp_generate_attachment_metadata( $attachment_id, $path );
-	wp_update_attachment_metadata( $attachment_id, $metadata );
+	if ( $generate_metadata ) {
+		$metadata = wp_generate_attachment_metadata( $attachment_id, $path );
+		wp_update_attachment_metadata( $attachment_id, $metadata );
+	}
 
 	return (int) $attachment_id;
 }
@@ -120,6 +145,8 @@ function ilswq_smoke_insert_attachment( $path, $mime ) {
  * @return array<string, array<string, mixed>>
  */
 function ilswq_smoke_validate_map( $attachment_id, $label ) {
+	global $expected_editor;
+
 	$map = ILSWQ_Scanner::get_webp_map( $attachment_id );
 	if ( empty( $map ) ) {
 		ilswq_smoke_fail( $label . ' did not generate any WebP files.' );
@@ -141,6 +168,10 @@ function ilswq_smoke_validate_map( $attachment_id, $label ) {
 		$info = wp_getimagesize( $entry['webp'] );
 		if ( ! is_array( $info ) || empty( $info['mime'] ) || 'image/webp' !== $info['mime'] ) {
 			ilswq_smoke_fail( $label . ' generated an invalid WebP file.' );
+		}
+
+		if ( '' !== $expected_editor && ( empty( $entry['editor'] ) || $expected_editor !== $entry['editor'] ) ) {
+			ilswq_smoke_fail( $label . ' did not use the requested ' . $expected_editor . ' editor.' );
 		}
 	}
 
@@ -180,26 +211,52 @@ if ( ! empty( $uploads['error'] ) ) {
 	ilswq_smoke_fail( $uploads['error'] );
 }
 
-$jpeg_path      = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-photo.jpg' );
-$png_path       = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-transparent.png' );
-$auto_jpeg_path = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-auto-photo.jpg' );
-
-ilswq_smoke_create_jpeg( $jpeg_path );
-ilswq_smoke_create_png( $png_path );
-ilswq_smoke_create_jpeg( $auto_jpeg_path );
-
-$jpeg_id = ilswq_smoke_insert_attachment( $jpeg_path, 'image/jpeg' );
-$png_id  = ilswq_smoke_insert_attachment( $png_path, 'image/png' );
-
-$settings                = ILSWQ_Settings::get();
-$settings['skip_larger'] = 0;
-$settings['serve_webp']  = 0;
+$original_settings        = ILSWQ_Settings::get();
+$settings                 = $original_settings;
+$settings['skip_larger']  = 0;
+$settings['serve_webp']   = 0;
 $settings['auto_uploads'] = 0;
 ILSWQ_Settings::save( $settings );
 delete_option( ILSWQ_OPTION_CLEANUP_PAGE );
 
+$jpeg_path      = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-photo.jpg' );
+$png_path       = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-transparent.png' );
+$auto_jpeg_path = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-auto-photo.jpg' );
+$foreign_path   = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-foreign-photo.jpg' );
+
+ilswq_smoke_create_jpeg( $jpeg_path );
+ilswq_smoke_create_png( $png_path );
+ilswq_smoke_create_jpeg( $auto_jpeg_path );
+ilswq_smoke_create_jpeg( $foreign_path );
+
+$jpeg_id    = ilswq_smoke_insert_attachment( $jpeg_path, 'image/jpeg' );
+$png_id     = ilswq_smoke_insert_attachment( $png_path, 'image/png' );
+$foreign_id = ilswq_smoke_insert_attachment( $foreign_path, 'image/jpeg', false );
+
 $scanner   = new ILSWQ_Scanner();
 $converter = new ILSWQ_Converter( $scanner );
+
+$foreign_webp = ILSWQ_Scanner::output_path( $foreign_path );
+if ( false === file_put_contents( $foreign_webp, 'foreign WebP sidecar fixture' ) ) {
+	ilswq_smoke_fail( 'Could not create the foreign sidecar fixture.' );
+}
+
+$foreign_hash = hash_file( 'sha256', $foreign_webp );
+$foreign_row  = $scanner->scan_attachment( $foreign_id, $settings );
+if ( 'conflict' !== $foreign_row['status_key'] || ! empty( $foreign_row['eligible'] ) ) {
+	ilswq_smoke_fail( 'A foreign sibling WebP was not reported as an ineligible conflict.' );
+}
+
+$foreign_result = $converter->convert_attachment( $foreign_id, $settings );
+clearstatcache( true, $foreign_webp );
+if (
+	'conflict' !== $foreign_result['status_key'] ||
+	! file_exists( $foreign_webp ) ||
+	$foreign_hash !== hash_file( 'sha256', $foreign_webp ) ||
+	metadata_exists( 'post', $foreign_id, ILSWQ_META_WEBP_FILES )
+) {
+	ilswq_smoke_fail( 'Conversion replaced, deleted, or claimed ownership of a foreign sibling WebP.' );
+}
 
 $converter->convert_attachment( $jpeg_id, $settings );
 $converter->convert_attachment( $png_id, $settings );
@@ -311,9 +368,13 @@ foreach ( $webp_paths as $path ) {
 wp_delete_attachment( $jpeg_id, true );
 wp_delete_attachment( $png_id, true );
 wp_delete_attachment( $auto_jpeg_id, true );
+wp_delete_file( $foreign_webp );
+wp_delete_attachment( $foreign_id, true );
+ILSWQ_Settings::save( $original_settings );
 
 echo sprintf(
-	"Smoke test passed. JPEG WebPs: %d. PNG WebPs: %d. Auto upload WebPs: %d.\n",
+	"Smoke test passed with %s. JPEG WebPs: %d. PNG WebPs: %d. Auto upload WebPs: %d. Foreign sidecar preserved.\n",
+	'' !== $expected_editor ? $expected_editor : 'the preferred editor',
 	count( $jpeg_map ),
 	count( $png_map ),
 	count( $auto_jpeg_map )

@@ -5,6 +5,24 @@ on:
   pull_request:
 
 jobs:
+  internationalization:
+    name: Internationalization
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP and WP-CLI
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: wp-cli
+          coverage: none
+
+      - name: Audit and extract translation strings
+        run: bash scripts/check-i18n.sh
+
   javascript:
     name: Admin JavaScript
     runs-on: ubuntu-latest
@@ -61,22 +79,27 @@ jobs:
             wordpress: '6.0'
             extensions: gd, mysqli
             image_stack: gd
+            expected_editor: GD
           - php: '8.3'
-            wordpress: 'latest'
+            wordpress: '7.1'
             extensions: gd, mysqli
             image_stack: gd
+            expected_editor: GD
           - php: '8.4'
-            wordpress: 'latest'
+            wordpress: '7.1'
             extensions: gd, mysqli
             image_stack: gd
+            expected_editor: GD
           - php: '8.3'
-            wordpress: 'latest'
+            wordpress: '7.1'
             extensions: gd, imagick, mysqli
             image_stack: imagick
+            expected_editor: Imagick
           - php: '8.4'
-            wordpress: 'latest'
+            wordpress: '7.1'
             extensions: gd, imagick, mysqli
             image_stack: imagick
+            expected_editor: Imagick
 
     services:
       mysql:
@@ -106,24 +129,22 @@ jobs:
 
       - name: Install WordPress
         run: |
-          if [ "${{ matrix.wordpress }}" = "latest" ]; then
-            wp core download --path=/tmp/wp
-          else
-            wp core download --version="${{ matrix.wordpress }}" --path=/tmp/wp
-          fi
+          wp core download --version="${{ matrix.wordpress }}" --path=/tmp/wp
           wp config create --dbname=wordpress --dbuser=root --dbpass=root --dbhost=127.0.0.1 --path=/tmp/wp
           wp core install --url=http://example.test --title=Test --admin_user=admin --admin_password=password --admin_email=admin@example.test --path=/tmp/wp
 
-      - name: Copy plugin
+      - name: Install exact release ZIP
         run: |
-          mkdir -p /tmp/wp/wp-content/plugins/indexlane-safe-webp-queue
-          cp -R assets includes indexlane-safe-webp-queue.php readme.txt uninstall.php /tmp/wp/wp-content/plugins/indexlane-safe-webp-queue/
+          release_zip="$(bash scripts/build-wordpress-org-dist.sh | sed -n '1p')"
+          unzip -q "${release_zip}" -d /tmp/wp/wp-content/plugins
 
       - name: Activate plugin
         run: wp plugin activate indexlane-safe-webp-queue --path=/tmp/wp
 
       - name: Run conversion smoke test
         run: php tests/smoke-wordpress.php /tmp/wp
+        env:
+          ILSWQ_SMOKE_EDITOR: ${{ matrix.expected_editor }}
 
   plugin-check:
     name: WordPress Plugin Check
@@ -133,11 +154,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Build Plugin Check directory
+      - name: Extract the unmodified final ZIP
         run: |
-          mkdir -p /tmp/plugin-check/indexlane-safe-webp-queue
-          cp -R assets includes indexlane-safe-webp-queue.php readme.txt uninstall.php README.md screenshot-*.png /tmp/plugin-check/indexlane-safe-webp-queue/
-          sed -i '/^[[:space:]]*\* Update URI:/d' /tmp/plugin-check/indexlane-safe-webp-queue/indexlane-safe-webp-queue.php
+          release_zip="$(bash scripts/build-wordpress-org-dist.sh | sed -n '1p')"
+          mkdir -p /tmp/plugin-check
+          unzip -q "${release_zip}" -d /tmp/plugin-check
 
       - name: Run Plugin Check
         uses: WordPress/plugin-check-action@v1

@@ -8,7 +8,7 @@ let source = fs.readFileSync(sourcePath, 'utf8');
 
 source = source.replace(
 	'\n\tupdateButtons();\n})(jQuery);',
-	'\n\tglobalThis.ILSWQ_TestHooks = { csvEscape: csvEscape, cleanupQueue: cleanupQueue };\n\tupdateButtons();\n})(jQuery);'
+	'\n\tglobalThis.ILSWQ_TestHooks = { csvEscape: csvEscape, formatString: formatString, cleanupQueue: cleanupQueue };\n\tupdateButtons();\n})(jQuery);'
 );
 
 if (!source.includes('ILSWQ_TestHooks')) {
@@ -49,7 +49,8 @@ const context = {
 	ILSWQ_Admin: {
 		ajaxUrl: 'https://example.test/wp-admin/admin-ajax.php',
 		nonce: 'test-nonce',
-		strings: { cleanupRunning: 'Cleaning' }
+		strings: { cleanupRunning: 'Cleaning' },
+		csvHeaders: []
 	},
 	jQuery: jQuery,
 	window: {}
@@ -68,6 +69,8 @@ assertEqual(context.ILSWQ_TestHooks.csvEscape('=2+2'), "'=2+2", 'Formula prefix 
 assertEqual(context.ILSWQ_TestHooks.csvEscape('  @SUM(A1:A2)'), "'  @SUM(A1:A2)", 'Whitespace-prefixed formula was not neutralized');
 assertEqual(context.ILSWQ_TestHooks.csvEscape('+1,000'), '"\'+1,000"', 'Quoted formula cell was not neutralized');
 assertEqual(context.ILSWQ_TestHooks.csvEscape('photo.jpg'), 'photo.jpg', 'Safe CSV value changed');
+assertEqual(context.ILSWQ_TestHooks.formatString('Select %s', ['Photo']), 'Select Photo', 'Sequential string placeholder was not replaced');
+assertEqual(context.ILSWQ_TestHooks.formatString('%2$d failed; %1$d passed', [4, 2]), '2 failed; 4 passed', 'Positional string placeholders were not replaced');
 
 context.ILSWQ_TestHooks.cleanupQueue(0, 0, true).then(function () {
 	assertEqual(requests.length, 2, 'Cleanup did not request both pages');

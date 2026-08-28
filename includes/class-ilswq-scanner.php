@@ -76,7 +76,7 @@ class ILSWQ_Scanner {
 		$sources = $this->scan_sources( $attachment_id, $settings );
 
 		if ( empty( $sources ) ) {
-			return $this->with_status( $row, 'Skipped', __( 'File missing', 'indexlane-safe-webp-queue' ), false );
+			return $this->with_status( $row, 'skipped', __( 'File missing', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		return $this->summarize_sources( $row, $sources );
@@ -410,7 +410,12 @@ class ILSWQ_Scanner {
 			return '0 B';
 		}
 
-		$units = array( 'B', 'KB', 'MB', 'GB' );
+		$units = array(
+			__( 'B', 'indexlane-safe-webp-queue' ),
+			__( 'KB', 'indexlane-safe-webp-queue' ),
+			__( 'MB', 'indexlane-safe-webp-queue' ),
+			__( 'GB', 'indexlane-safe-webp-queue' ),
+		);
 		$index = 0;
 
 		while ( $bytes >= 1024 && $index < count( $units ) - 1 ) {
@@ -449,18 +454,45 @@ class ILSWQ_Scanner {
 	 * Add status fields.
 	 *
 	 * @param array<string, mixed> $row Row.
-	 * @param string               $status Status.
+	 * @param string               $status_key Status key.
 	 * @param string               $reason Reason.
 	 * @param bool                 $eligible Eligible.
 	 * @return array<string, mixed>
 	 */
-	public function with_status( $row, $status, $reason, $eligible ) {
-		$row['status']     = $status;
-		$row['status_key'] = sanitize_title( $status );
+	public function with_status( $row, $status_key, $reason, $eligible ) {
+		$status_key        = sanitize_title( $status_key );
+		$row['status']     = self::status_label( $status_key );
+		$row['status_key'] = $status_key;
 		$row['reason']     = $reason;
 		$row['eligible']   = (bool) $eligible;
 
 		return $row;
+	}
+
+	/**
+	 * Return the translated label for a stable status key.
+	 *
+	 * @param string $status_key Status key.
+	 * @return string
+	 */
+	public static function status_label( $status_key ) {
+		switch ( $status_key ) {
+			case 'eligible':
+				return __( 'Eligible', 'indexlane-safe-webp-queue' );
+			case 'converted':
+				return __( 'Converted', 'indexlane-safe-webp-queue' );
+			case 'already-exists':
+				return __( 'Already exists', 'indexlane-safe-webp-queue' );
+			case 'needs-review':
+				return __( 'Needs review', 'indexlane-safe-webp-queue' );
+			case 'failed':
+				return __( 'Failed', 'indexlane-safe-webp-queue' );
+			case 'conflict':
+				return __( 'Conflict', 'indexlane-safe-webp-queue' );
+			case 'skipped':
+			default:
+				return __( 'Skipped', 'indexlane-safe-webp-queue' );
+		}
 	}
 
 	/**
@@ -472,7 +504,8 @@ class ILSWQ_Scanner {
 	 * @return array<string, mixed>
 	 */
 	private function scan_source( $source, $settings, $webp_map ) {
-		$source['status']                 = 'Skipped';
+		$source['status']                 = self::status_label( 'skipped' );
+		$source['status_key']             = 'skipped';
 		$source['reason']                 = '';
 		$source['eligible']               = false;
 		$source['original_size']          = 0;
@@ -485,19 +518,19 @@ class ILSWQ_Scanner {
 
 		$file = isset( $source['path'] ) ? wp_normalize_path( (string) $source['path'] ) : '';
 		if ( '' === $file ) {
-			return $this->source_with_status( $source, 'Skipped', __( 'File missing', 'indexlane-safe-webp-queue' ), false );
+			return $this->source_with_status( $source, 'skipped', __( 'File missing', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		if ( ! file_exists( $file ) ) {
-			return $this->source_with_status( $source, 'Skipped', __( 'File missing', 'indexlane-safe-webp-queue' ), false );
+			return $this->source_with_status( $source, 'skipped', __( 'File missing', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		if ( ! is_readable( $file ) ) {
-			return $this->source_with_status( $source, 'Skipped', __( 'File is not readable', 'indexlane-safe-webp-queue' ), false );
+			return $this->source_with_status( $source, 'skipped', __( 'File is not readable', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		if ( ! self::is_uploads_path( $file ) ) {
-			return $this->source_with_status( $source, 'Skipped', __( 'File is outside the uploads directory', 'indexlane-safe-webp-queue' ), false );
+			return $this->source_with_status( $source, 'skipped', __( 'File is outside the uploads directory', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		$mime_type = isset( $source['mime_type'] ) ? (string) $source['mime_type'] : '';
@@ -530,71 +563,63 @@ class ILSWQ_Scanner {
 
 		if ( '' !== $source['existing_plugin_webp_path'] && file_exists( $source['existing_plugin_webp_path'] ) ) {
 			if ( ! self::is_valid_webp_file( $source['existing_plugin_webp_path'] ) ) {
-				return $this->source_with_status( $source, 'Needs review', __( 'Generated WebP file is invalid', 'indexlane-safe-webp-queue' ), true );
+				return $this->source_with_status( $source, 'needs-review', __( 'Generated WebP file is invalid', 'indexlane-safe-webp-queue' ), true );
 			}
 
 			if ( $this->webp_is_stale( $file, $source['existing_plugin_webp_path'] ) ) {
-				return $this->source_with_status( $source, 'Needs review', __( 'Generated WebP is older than the source file', 'indexlane-safe-webp-queue' ), true );
+				return $this->source_with_status( $source, 'needs-review', __( 'Generated WebP is older than the source file', 'indexlane-safe-webp-queue' ), true );
 			}
 
 			return $this->source_with_existing_webp(
 				$source,
 				$source['existing_plugin_webp_path'],
-				'Converted',
+				'converted',
 				__( 'Generated by this plugin', 'indexlane-safe-webp-queue' )
 			);
 		}
 
 		if ( file_exists( $source['output_path'] ) ) {
-			if ( ! self::is_valid_webp_file( $source['output_path'] ) ) {
-				return $this->source_with_status( $source, 'Needs review', __( 'Existing sibling WebP is invalid', 'indexlane-safe-webp-queue' ), true );
-			}
-
-			if ( $this->webp_is_stale( $file, $source['output_path'] ) ) {
-				return $this->source_with_status( $source, 'Needs review', __( 'Existing sibling WebP is older than the source file', 'indexlane-safe-webp-queue' ), true );
-			}
-
 			return $this->source_with_existing_webp(
 				$source,
 				$source['output_path'],
-				'Already exists',
-				__( 'Sibling WebP already exists', 'indexlane-safe-webp-queue' )
+				'conflict',
+				__( 'A sibling WebP file exists but is not owned by this plugin. Move or rename it before converting.', 'indexlane-safe-webp-queue' )
 			);
 		}
 
 		if ( 'image/webp' === $mime_type ) {
-			return $this->source_with_status( $source, 'Skipped', __( 'Already WebP', 'indexlane-safe-webp-queue' ), false );
+			return $this->source_with_status( $source, 'skipped', __( 'Already WebP', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		if ( ! self::is_supported_source_mime( $mime_type ) ) {
-			return $this->source_with_status( $source, 'Skipped', __( 'Unsupported MIME type', 'indexlane-safe-webp-queue' ), false );
+			return $this->source_with_status( $source, 'skipped', __( 'Unsupported MIME type', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		if ( $width <= 0 || $height <= 0 ) {
-			return $this->source_with_status( $source, 'Skipped', __( 'Dimensions unavailable', 'indexlane-safe-webp-queue' ), false );
+			return $this->source_with_status( $source, 'skipped', __( 'Dimensions unavailable', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
-			return $this->source_with_status( $source, 'Skipped', __( 'WebP not supported by server', 'indexlane-safe-webp-queue' ), false );
+			return $this->source_with_status( $source, 'skipped', __( 'WebP not supported by server', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		if ( ! ILSWQ_Capabilities::is_writable_path( dirname( $file ) ) ) {
-			return $this->source_with_status( $source, 'Skipped', __( 'Upload directory not writable', 'indexlane-safe-webp-queue' ), false );
+			return $this->source_with_status( $source, 'skipped', __( 'Upload directory not writable', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		if ( ! empty( $settings['max_pixels'] ) && $source['pixel_count'] > (int) $settings['max_pixels'] ) {
-			return $this->source_with_status( $source, 'Skipped', __( 'Image exceeds max pixel limit', 'indexlane-safe-webp-queue' ), false );
+			return $this->source_with_status( $source, 'skipped', __( 'Image exceeds max pixel limit', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		$memory_limit = ILSWQ_Capabilities::memory_limit_bytes();
 		if ( $memory_limit > 0 ) {
 			$safe_memory = (int) floor( $memory_limit * 0.70 );
 			if ( $estimated_memory > $safe_memory ) {
-				return $this->source_with_status( $source, 'Skipped', __( 'Image too large for current memory limit', 'indexlane-safe-webp-queue' ), false );
+				return $this->source_with_status( $source, 'skipped', __( 'Image too large for current memory limit', 'indexlane-safe-webp-queue' ), false );
 			}
 		}
 
-		return $this->source_with_status( $source, 'Eligible', __( 'Ready for conversion', 'indexlane-safe-webp-queue' ), true );
+		return $this->source_with_status( $source, 'eligible', __( 'Ready for conversion', 'indexlane-safe-webp-queue' ), true );
 	}
 
 	/**
@@ -637,7 +662,7 @@ class ILSWQ_Scanner {
 			'generated_source_count' => 0,
 			'existing_source_count'  => 0,
 			'skipped_source_count'   => 0,
-			'status'                 => 'Skipped',
+			'status'                 => self::status_label( 'skipped' ),
 			'status_key'             => 'skipped',
 			'reason'                 => '',
 			'eligible'               => false,
@@ -662,21 +687,23 @@ class ILSWQ_Scanner {
 		$row['dimensions'] = isset( $full['dimensions'] ) ? (string) $full['dimensions'] : '';
 		$row['editor']     = ILSWQ_Capabilities::preferred_editor_label();
 
-		$source_count = count( $sources );
-		$counts       = array(
+		$source_count          = count( $sources );
+		$counts                = array(
 			'eligible'       => 0,
 			'needs_review'   => 0,
 			'converted'      => 0,
 			'already_exists' => 0,
+			'conflict'       => 0,
 			'skipped'        => 0,
 			'failed'         => 0,
 		);
-		$first_reason        = '';
-		$first_review_reason = '';
+		$first_reason          = '';
+		$first_review_reason   = '';
+		$first_conflict_reason = '';
 
 		foreach ( $sources as $source ) {
-			$status = isset( $source['status'] ) ? (string) $source['status'] : 'Skipped';
-			$reason = isset( $source['reason'] ) ? (string) $source['reason'] : '';
+			$status_key = isset( $source['status_key'] ) ? (string) $source['status_key'] : 'skipped';
+			$reason     = isset( $source['reason'] ) ? (string) $source['reason'] : '';
 			if ( ! empty( $source['existing_plugin_webp_path'] ) ) {
 				++$row['generated_source_count'];
 			}
@@ -690,19 +717,25 @@ class ILSWQ_Scanner {
 				$first_reason = $reason;
 			}
 
-			if ( 'Needs review' === $status && '' === $first_review_reason && '' !== $reason ) {
+			if ( 'needs-review' === $status_key && '' === $first_review_reason && '' !== $reason ) {
 				$first_review_reason = $reason;
 			}
 
-			if ( 'Eligible' === $status ) {
+			if ( 'conflict' === $status_key && '' === $first_conflict_reason && '' !== $reason ) {
+				$first_conflict_reason = $reason;
+			}
+
+			if ( 'eligible' === $status_key ) {
 				++$counts['eligible'];
-			} elseif ( 'Needs review' === $status ) {
+			} elseif ( 'needs-review' === $status_key ) {
 				++$counts['needs_review'];
-			} elseif ( 'Converted' === $status ) {
+			} elseif ( 'converted' === $status_key ) {
 				++$counts['converted'];
-			} elseif ( 'Already exists' === $status ) {
+			} elseif ( 'already-exists' === $status_key ) {
 				++$counts['already_exists'];
-			} elseif ( 'Failed' === $status ) {
+			} elseif ( 'conflict' === $status_key ) {
+				++$counts['conflict'];
+			} elseif ( 'failed' === $status_key ) {
 				++$counts['failed'];
 			} else {
 				++$counts['skipped'];
@@ -724,10 +757,23 @@ class ILSWQ_Scanner {
 		$row['webp_size_label']        = (int) $row['webp_size'] > 0 ? self::format_bytes( (int) $row['webp_size'] ) : '';
 		$row['savings']                = $this->savings_label( (int) $row['original_size'], (int) $row['webp_size'] );
 
+		if ( $counts['conflict'] > 0 ) {
+			return $this->with_status(
+				$row,
+				'conflict',
+				'' !== $first_conflict_reason ? $first_conflict_reason : sprintf(
+					/* translators: %d: source file count. */
+					_n( '%d source file has a conflicting sibling WebP', '%d source files have conflicting sibling WebPs', $counts['conflict'], 'indexlane-safe-webp-queue' ),
+					$counts['conflict']
+				),
+				$counts['eligible'] + $counts['needs_review'] > 0
+			);
+		}
+
 		if ( $counts['needs_review'] > 0 ) {
 			return $this->with_status(
 				$row,
-				'Needs review',
+				'needs-review',
 				'' !== $first_review_reason ? $first_review_reason : sprintf(
 					/* translators: 1: review source count, 2: total source count. */
 					__( '%1$d of %2$d source files need review', 'indexlane-safe-webp-queue' ),
@@ -741,7 +787,7 @@ class ILSWQ_Scanner {
 		if ( $counts['eligible'] > 0 ) {
 			return $this->with_status(
 				$row,
-				'Eligible',
+				'eligible',
 				sprintf(
 					/* translators: 1: eligible source count, 2: total source count. */
 					__( '%1$d of %2$d source files ready', 'indexlane-safe-webp-queue' ),
@@ -753,13 +799,13 @@ class ILSWQ_Scanner {
 		}
 
 		if ( $counts['failed'] > 0 ) {
-			return $this->with_status( $row, 'Failed', $first_reason, false );
+			return $this->with_status( $row, 'failed', $first_reason, false );
 		}
 
 		if ( $counts['converted'] > 0 && 0 === $counts['skipped'] && 0 === $counts['already_exists'] ) {
 			return $this->with_status(
 				$row,
-				'Converted',
+				'converted',
 				sprintf(
 					/* translators: %d: converted source count. */
 					__( '%d WebP files generated', 'indexlane-safe-webp-queue' ),
@@ -772,7 +818,7 @@ class ILSWQ_Scanner {
 		if ( $counts['converted'] > 0 || $counts['already_exists'] > 0 ) {
 			return $this->with_status(
 				$row,
-				'Needs review',
+				'needs-review',
 				sprintf(
 					/* translators: 1: ready WebP count, 2: total source count. */
 					__( '%1$d of %2$d source files have WebP copies', 'indexlane-safe-webp-queue' ),
@@ -783,22 +829,24 @@ class ILSWQ_Scanner {
 			);
 		}
 
-		return $this->with_status( $row, 'Skipped', $first_reason, false );
+		return $this->with_status( $row, 'skipped', $first_reason, false );
 	}
 
 	/**
 	 * Add status fields to one source.
 	 *
 	 * @param array<string, mixed> $source Source.
-	 * @param string               $status Status.
+	 * @param string               $status_key Status key.
 	 * @param string               $reason Reason.
 	 * @param bool                 $eligible Eligible.
 	 * @return array<string, mixed>
 	 */
-	private function source_with_status( $source, $status, $reason, $eligible ) {
-		$source['status']   = $status;
-		$source['reason']   = $reason;
-		$source['eligible'] = (bool) $eligible;
+	private function source_with_status( $source, $status_key, $reason, $eligible ) {
+		$status_key           = sanitize_title( $status_key );
+		$source['status']     = self::status_label( $status_key );
+		$source['status_key'] = $status_key;
+		$source['reason']     = $reason;
+		$source['eligible']   = (bool) $eligible;
 
 		return $source;
 	}
@@ -808,18 +856,18 @@ class ILSWQ_Scanner {
 	 *
 	 * @param array<string, mixed> $source Source.
 	 * @param string               $webp_path WebP path.
-	 * @param string               $status Status.
+	 * @param string               $status_key Status key.
 	 * @param string               $reason Reason.
 	 * @return array<string, mixed>
 	 */
-	private function source_with_existing_webp( $source, $webp_path, $status, $reason ) {
+	private function source_with_existing_webp( $source, $webp_path, $status_key, $reason ) {
 		$webp_size = filesize( $webp_path );
 
 		$source['webp_size']       = false === $webp_size ? 0 : (int) $webp_size;
 		$source['webp_size_label'] = self::format_bytes( $source['webp_size'] );
 		$source['webp_url']        = self::path_to_url( $webp_path );
 
-		return $this->source_with_status( $source, $status, $reason, false );
+		return $this->source_with_status( $source, $status_key, $reason, false );
 	}
 
 	/**
@@ -875,11 +923,13 @@ class ILSWQ_Scanner {
 	private function webp_path_from_map( $source, $webp_map ) {
 		$name = isset( $source['name'] ) ? (string) $source['name'] : '';
 		$path = isset( $source['path'] ) ? wp_normalize_path( (string) $source['path'] ) : '';
+		$output_path = self::output_path( $path );
 
 		if ( '' !== $name && isset( $webp_map[ $name ]['webp'] ) ) {
 			$entry_source = isset( $webp_map[ $name ]['source'] ) ? wp_normalize_path( (string) $webp_map[ $name ]['source'] ) : '';
-			if ( '' === $entry_source || $path === $entry_source ) {
-				return wp_normalize_path( (string) $webp_map[ $name ]['webp'] );
+			$entry_webp   = wp_normalize_path( (string) $webp_map[ $name ]['webp'] );
+			if ( $path === $entry_source && $output_path === $entry_webp ) {
+				return $entry_webp;
 			}
 		}
 
@@ -888,8 +938,10 @@ class ILSWQ_Scanner {
 				continue;
 			}
 
-			if ( $path === wp_normalize_path( (string) $entry['source'] ) ) {
-				return wp_normalize_path( (string) $entry['webp'] );
+			$entry_source = wp_normalize_path( (string) $entry['source'] );
+			$entry_webp   = wp_normalize_path( (string) $entry['webp'] );
+			if ( $path === $entry_source && $output_path === $entry_webp ) {
+				return $entry_webp;
 			}
 		}
 
