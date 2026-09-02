@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: IndexLane Safe WebP Queue
- * Plugin URI: https://indexlane.dev/plugins/safe-webp-queue/
+ * Plugin URI: https://indexlane.dev/plugins/safe-webp-queue
  * Description: Convert selected WordPress media images to local WebP copies in small, safety-first batches.
  * Version: 0.1.5
  * Requires at least: 6.0

@@ -6,6 +6,8 @@ IndexLane Safe WebP Queue runs inside wp-admin, checks server support first, con
 
 It is for cautious local WebP conversion: no cloud service, no database URL rewrites, no original-file replacement.
 
+[Plugin page on IndexLane](https://indexlane.dev/plugins/safe-webp-queue)
+
 ## What it does
 
 - Runs from Tools -> IndexLane Safe WebP Queue.

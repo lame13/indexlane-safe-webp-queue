@@ -269,6 +269,27 @@ async function navigate(client, url) {
 	await waitFor(client, 'document.readyState === "complete"', 30000);
 }
 
+async function cleanAdminChrome(client) {
+	await evaluate(
+		client,
+		`(() => {
+			const style = document.createElement('style');
+			style.textContent = [
+				'#wpbody-content > .update-nag',
+				'#wpbody-content > .notice:not(.ilswq-notice)',
+				'#wp-admin-bar-updates',
+				'#wp-admin-bar-sqlite-db-integration',
+				'#adminmenu .update-plugins',
+				'#adminmenu .awaiting-mod',
+				'#adminmenu .site-health-counter',
+				'#wpfooter'
+			].join(',') + '{display:none!important;}';
+			document.head.appendChild(style);
+			return true;
+		})()`
+	);
+}
+
 (async () => {
 	const target = await requestJson('PUT', `/json/new?${encodeURIComponent('about:blank')}`);
 	const client = new CdpClient(target.webSocketDebuggerUrl);
@@ -297,6 +318,7 @@ true;`
 
 		await navigate(client, `${baseUrl}/wp-admin/tools.php?page=indexlane-safe-webp-queue`);
 		await waitFor(client, '!!document.querySelector("#ilswq-scan")');
+		await cleanAdminChrome(client);
 		await evaluate(client, 'window.scrollTo(0, 0); true;');
 		await screenshot(client, 'screenshot-1.png');
 

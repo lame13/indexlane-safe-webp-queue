@@ -18,6 +18,8 @@ The plugin checks local server support, estimates memory risk, preserves origina
 
 It is built for cautious local conversion, not cloud optimization or automatic original-file replacement.
 
+Learn more at [IndexLane](https://indexlane.dev/plugins/safe-webp-queue).
+
 What it does:
 
 * Scans JPEG and PNG attachments in the Media Library.
