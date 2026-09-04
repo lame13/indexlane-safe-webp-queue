@@ -140,9 +140,7 @@ class ILSWQ_Serving {
 				continue;
 			}
 
-			$source_mtime = filemtime( $source_path );
-			$webp_mtime   = filemtime( $webp_path );
-			if ( false !== $source_mtime && false !== $webp_mtime && $webp_mtime < $source_mtime ) {
+			if ( ! ILSWQ_Scanner::source_matches_map_entry( $entry ) ) {
 				continue;
 			}
 

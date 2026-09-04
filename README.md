@@ -2,7 +2,7 @@
 
 Convert WordPress Media Library images and generated sizes to WebP locally.
 
-IndexLane Safe WebP Queue runs inside wp-admin, checks server support first, converts in small batches, keeps originals, and shows whether each image was converted, skipped, failed, conflicted, or needs review.
+IndexLane Safe WebP Queue runs inside wp-admin, checks server support first, converts through a persistent small-batch queue, keeps originals, and shows whether each image was converted, skipped, failed, conflicted, or needs review.
 
 It is for cautious local WebP conversion: no cloud service, no database URL rewrites, no original-file replacement.
 
@@ -12,7 +12,8 @@ It is for cautious local WebP conversion: no cloud service, no database URL rewr
 
 - Runs from Tools -> IndexLane Safe WebP Queue.
 - Checks GD and Imagick WebP support before conversion.
-- Converts in small browser-driven batches.
+- Converts in small resumable batches with wp-admin and WP-Cron workers.
+- Keeps conversion job progress when the plugin page is closed.
 - Stores uploads-relative metadata for generated WebP files.
 - Detects stale or invalid generated WebP files.
 - Treats unrelated sibling WebP files as conflicts and leaves them unchanged.
@@ -20,7 +21,9 @@ It is for cautious local WebP conversion: no cloud service, no database URL rewr
 - Exports the visible report as CSV.
 - Deletes plugin-generated WebP files on request.
 - Optionally serves generated WebP files in normal WordPress image output.
-- Optionally generates WebP files for new uploads.
+- Optionally queues WebP generation for new uploads.
+- Reconciles plugin-owned WebP files when attachment sizes change or an attachment is deleted.
+- Detects source changes and conversion-quality changes before regenerating output.
 
 ## What it does not do
 
@@ -37,4 +40,4 @@ Copy the plugin into a WordPress install, activate it, then run:
 php tests/smoke-wordpress.php /path/to/wordpress
 ```
 
-The smoke test creates repeatable JPEG and transparent PNG fixtures, preserves an unrelated sibling WebP as a conflict, converts generated attachment sizes, validates complete WebP maps, checks optional frontend serving, verifies uploads-relative metadata storage, checks automatic new-upload conversion, and confirms failed cleanup keeps ownership metadata until a successful retry.
+The smoke test creates repeatable JPEG and transparent PNG fixtures, preserves an unrelated sibling WebP as a conflict, converts generated attachment sizes through the persistent queue, validates complete WebP maps, checks optional frontend serving, verifies uploads-relative metadata storage and generation fingerprints, checks queued new-upload conversion, exercises attachment lifecycle cleanup, and confirms failed cleanup keeps ownership metadata until a successful retry.

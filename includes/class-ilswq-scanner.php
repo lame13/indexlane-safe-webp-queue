@@ -85,8 +85,9 @@ class ILSWQ_Scanner {
 	/**
 	 * Return scanned source files for an attachment.
 	 *
-	 * @param int                $attachment_id Attachment ID.
-	 * @param array<string, int> $settings Settings.
+	 * @param int                      $attachment_id Attachment ID.
+	 * @param array<string, int>       $settings Settings.
+	 * @param array<string,mixed>|null $metadata Optional attachment metadata.
 	 * @return array<int, array<string, mixed>>
 	 */
 	public function scan_sources( $attachment_id, $settings, $metadata = null ) {
@@ -104,7 +105,8 @@ class ILSWQ_Scanner {
 	/**
 	 * Return original and intermediate image source files for an attachment.
 	 *
-	 * @param int $attachment_id Attachment ID.
+	 * @param int                      $attachment_id Attachment ID.
+	 * @param array<string,mixed>|null $metadata Optional attachment metadata.
 	 * @return array<int, array<string, mixed>>
 	 */
 	public function get_attachment_sources( $attachment_id, $metadata = null ) {
@@ -441,6 +443,68 @@ class ILSWQ_Scanner {
 	}
 
 	/**
+	 * Build a portable fingerprint for one generated output.
+	 *
+	 * @param string $source_path Source path.
+	 * @param int    $source_size Source byte size.
+	 * @param int    $source_mtime Source modification time.
+	 * @param string $mime_type Source MIME type.
+	 * @param int    $quality Conversion quality.
+	 * @return string
+	 */
+	public static function generation_fingerprint( $source_path, $source_size, $source_mtime, $mime_type, $quality ) {
+		$relative = self::path_to_relative( $source_path );
+		$payload  = array(
+			'schema'       => 1,
+			'source'       => $relative,
+			'source_size'  => max( 0, (int) $source_size ),
+			'source_mtime' => max( 0, (int) $source_mtime ),
+			'mime_type'    => sanitize_mime_type( $mime_type ),
+			'quality'      => max( 1, min( 100, absint( $quality ) ) ),
+		);
+
+		return hash( 'sha256', (string) wp_json_encode( $payload ) );
+	}
+
+	/**
+	 * Return whether a generated entry still represents its source file.
+	 *
+	 * Quality is intentionally excluded so a valid old output can continue to
+	 * be served until its atomically generated replacement is ready.
+	 *
+	 * @param array<string, mixed> $entry Runtime map entry.
+	 * @return bool
+	 */
+	public static function source_matches_map_entry( $entry ) {
+		if ( empty( $entry['source'] ) || empty( $entry['webp'] ) ) {
+			return false;
+		}
+
+		$source_path = wp_normalize_path( (string) $entry['source'] );
+		$webp_path   = wp_normalize_path( (string) $entry['webp'] );
+		if ( ! file_exists( $source_path ) || ! file_exists( $webp_path ) ) {
+			return false;
+		}
+
+		$source_size = filesize( $source_path );
+		if ( false !== $source_size && ! empty( $entry['source_size'] ) && (int) $entry['source_size'] !== (int) $source_size ) {
+			return false;
+		}
+
+		$source_mtime = filemtime( $source_path );
+		$webp_mtime   = filemtime( $webp_path );
+		if ( false !== $source_mtime && ! empty( $entry['source_mtime'] ) && (int) $entry['source_mtime'] !== (int) $source_mtime ) {
+			return false;
+		}
+
+		if ( false !== $source_mtime && false !== $webp_mtime && $webp_mtime < $source_mtime ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
 	 * Return true for supported source image types.
 	 *
 	 * @param string $mime_type MIME type.
@@ -555,19 +619,21 @@ class ILSWQ_Scanner {
 		$source['original_size']       = false === $original_size ? 0 : (int) $original_size;
 		$source['original_size_label'] = self::format_bytes( $source['original_size'] );
 
-		$estimated_memory                    = self::estimate_memory_bytes( $width, $height );
-		$source['estimated_memory']          = $estimated_memory;
-		$source['estimated_memory_label']    = self::format_bytes( $estimated_memory );
-		$source['output_path']               = self::output_path( $file );
-		$source['existing_plugin_webp_path'] = $this->webp_path_from_map( $source, $webp_map );
+		$estimated_memory                      = self::estimate_memory_bytes( $width, $height );
+		$source['estimated_memory']            = $estimated_memory;
+		$source['estimated_memory_label']      = self::format_bytes( $estimated_memory );
+		$source['output_path']                 = self::output_path( $file );
+		$source['existing_plugin_webp_entry']  = $this->webp_entry_from_map( $source, $webp_map );
+		$source['existing_plugin_webp_path']   = ! empty( $source['existing_plugin_webp_entry']['webp'] ) ? wp_normalize_path( (string) $source['existing_plugin_webp_entry']['webp'] ) : '';
 
 		if ( '' !== $source['existing_plugin_webp_path'] && file_exists( $source['existing_plugin_webp_path'] ) ) {
 			if ( ! self::is_valid_webp_file( $source['existing_plugin_webp_path'] ) ) {
 				return $this->source_with_status( $source, 'needs-review', __( 'Generated WebP file is invalid', 'indexlane-safe-webp-queue' ), true );
 			}
 
-			if ( $this->webp_is_stale( $file, $source['existing_plugin_webp_path'] ) ) {
-				return $this->source_with_status( $source, 'needs-review', __( 'Generated WebP is older than the source file', 'indexlane-safe-webp-queue' ), true );
+			$entry_issue = $this->generated_entry_issue( $source, $source['existing_plugin_webp_entry'], $settings );
+			if ( '' !== $entry_issue ) {
+				return $this->source_with_status( $source, 'needs-review', $entry_issue, true );
 			}
 
 			return $this->source_with_existing_webp(
@@ -871,21 +937,42 @@ class ILSWQ_Scanner {
 	}
 
 	/**
-	 * Return true when an existing WebP is older than its source.
+	 * Return the reason a generated entry should be regenerated.
 	 *
-	 * @param string $source_path Source path.
-	 * @param string $webp_path WebP path.
-	 * @return bool
+	 * Existing entries without 0.2 fingerprint fields remain compatible and
+	 * continue to use the source/WebP modification-time check.
+	 *
+	 * @param array<string, mixed> $source Source data.
+	 * @param array<string, mixed> $entry Stored map entry.
+	 * @param array<string, int>   $settings Current settings.
+	 * @return string
 	 */
-	private function webp_is_stale( $source_path, $webp_path ) {
-		$source_mtime = filemtime( $source_path );
-		$webp_mtime   = filemtime( $webp_path );
-
-		if ( false === $source_mtime || false === $webp_mtime ) {
-			return false;
+	private function generated_entry_issue( $source, $entry, $settings ) {
+		if ( ! self::source_matches_map_entry( $entry ) ) {
+			return __( 'Source file changed since WebP generation', 'indexlane-safe-webp-queue' );
 		}
 
-		return $webp_mtime < $source_mtime;
+		$mime_type       = isset( $source['mime_type'] ) ? (string) $source['mime_type'] : '';
+		$current_quality = ILSWQ_Settings::quality_for_mime( $mime_type, $settings );
+		$stored_quality  = isset( $entry['quality'] ) ? absint( $entry['quality'] ) : 0;
+
+		if ( $stored_quality > 0 && $stored_quality !== $current_quality ) {
+			return __( 'WebP was generated with different quality settings', 'indexlane-safe-webp-queue' );
+		}
+
+		if ( ! empty( $entry['fingerprint'] ) && $stored_quality > 0 ) {
+			$source_path  = isset( $source['path'] ) ? wp_normalize_path( (string) $source['path'] ) : '';
+			$source_size  = isset( $source['original_size'] ) ? (int) $source['original_size'] : 0;
+			$source_mtime = filemtime( $source_path );
+			$source_mtime = false === $source_mtime ? 0 : (int) $source_mtime;
+			$expected     = self::generation_fingerprint( $source_path, $source_size, $source_mtime, $mime_type, $current_quality );
+
+			if ( ! hash_equals( (string) $entry['fingerprint'], $expected ) ) {
+				return __( 'WebP generation details no longer match the source', 'indexlane-safe-webp-queue' );
+			}
+		}
+
+		return '';
 	}
 
 	/**
@@ -914,22 +1001,22 @@ class ILSWQ_Scanner {
 	}
 
 	/**
-	 * Get a plugin-generated WebP path from the stored map.
+	 * Get a plugin-generated WebP entry from the stored map.
 	 *
 	 * @param array<string, mixed>               $source Source.
 	 * @param array<string, array<string,mixed>> $webp_map WebP map.
-	 * @return string
+	 * @return array<string, mixed>
 	 */
-	private function webp_path_from_map( $source, $webp_map ) {
-		$name = isset( $source['name'] ) ? (string) $source['name'] : '';
-		$path = isset( $source['path'] ) ? wp_normalize_path( (string) $source['path'] ) : '';
+	private function webp_entry_from_map( $source, $webp_map ) {
+		$name        = isset( $source['name'] ) ? (string) $source['name'] : '';
+		$path        = isset( $source['path'] ) ? wp_normalize_path( (string) $source['path'] ) : '';
 		$output_path = self::output_path( $path );
 
 		if ( '' !== $name && isset( $webp_map[ $name ]['webp'] ) ) {
 			$entry_source = isset( $webp_map[ $name ]['source'] ) ? wp_normalize_path( (string) $webp_map[ $name ]['source'] ) : '';
 			$entry_webp   = wp_normalize_path( (string) $webp_map[ $name ]['webp'] );
 			if ( $path === $entry_source && $output_path === $entry_webp ) {
-				return $entry_webp;
+				return $webp_map[ $name ];
 			}
 		}
 
@@ -941,11 +1028,11 @@ class ILSWQ_Scanner {
 			$entry_source = wp_normalize_path( (string) $entry['source'] );
 			$entry_webp   = wp_normalize_path( (string) $entry['webp'] );
 			if ( $path === $entry_source && $output_path === $entry_webp ) {
-				return $entry_webp;
+				return $entry;
 			}
 		}
 
-		return '';
+		return array();
 	}
 
 	/**

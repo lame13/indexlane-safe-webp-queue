@@ -13,6 +13,7 @@ const debugPort = parseInt(process.env.ILSWQ_CHROME_PORT || '9223', 10);
 const outputDir = process.env.ILSWQ_SCREENSHOT_DIR || process.cwd();
 const username = process.env.ILSWQ_WP_USER || 'ilswqadmin';
 const password = process.env.ILSWQ_WP_PASS || 'password';
+const qaMode = process.env.ILSWQ_QA_MODE === '1';
 
 function requestJson(method, requestPath) {
 	return new Promise((resolve, reject) => {
@@ -58,6 +59,7 @@ class CdpClient {
 		this.pending = new Map();
 		this.buffer = Buffer.alloc(0);
 		this.connected = false;
+		this.events = [];
 	}
 
 	connect() {
@@ -165,7 +167,14 @@ class CdpClient {
 			return;
 		}
 
-		if (!payload.id || !this.pending.has(payload.id)) {
+		if (!payload.id) {
+			if (['Log.entryAdded', 'Network.loadingFailed', 'Runtime.exceptionThrown'].includes(payload.method)) {
+				this.events.push(payload);
+			}
+			return;
+		}
+
+		if (!this.pending.has(payload.id)) {
 			return;
 		}
 
@@ -298,6 +307,8 @@ async function cleanAdminChrome(client) {
 	try {
 		await client.send('Page.enable');
 		await client.send('Runtime.enable');
+		await client.send('Network.enable');
+		await client.send('Log.enable');
 		await client.send('Emulation.setDeviceMetricsOverride', {
 			width: 1800,
 			height: 1000,
@@ -336,8 +347,7 @@ document.querySelectorAll('#ilswq-results-body tr:not(.ilswq-empty-row)').length
 		await evaluate(client, 'document.querySelector("#ilswq-convert").click(); true;');
 		await waitFor(
 			client,
-			`document.querySelector('#ilswq-notice') &&
-document.querySelector('#ilswq-notice').textContent.indexOf('Conversion queue complete') !== -1 &&
+			`document.querySelector('#ilswq-queue-state.is-completed') &&
 document.querySelectorAll('.ilswq-status.is-converted, .ilswq-status.is-needs-review').length > 0`,
 			60000
 		);
@@ -352,6 +362,56 @@ window.scrollTo(0, 0);
 true;`
 		);
 		await screenshot(client, 'screenshot-4.png');
+
+		if (qaMode) {
+			await client.send('Emulation.setDeviceMetricsOverride', {
+				width: 390,
+				height: 844,
+				deviceScaleFactor: 1,
+				mobile: true,
+			});
+			await evaluate(client, 'document.querySelector(".ilswq-queue-panel").scrollIntoView(); true;');
+			await screenshot(client, 'qa-mobile-queue.png');
+			await evaluate(client, 'document.querySelector(".ilswq-report-panel").scrollIntoView(); true;');
+			await screenshot(client, 'qa-mobile-report.png');
+
+			await navigate(client, `${baseUrl}/wp-admin/tools.php?page=indexlane-safe-webp-queue`);
+			await waitFor(client, '!!document.querySelector("#ilswq-scan")');
+			await cleanAdminChrome(client);
+			await evaluate(client, 'window.scrollTo(0, 0); true;');
+			await screenshot(client, 'qa-mobile.png');
+
+			const diagnostics = await evaluate(
+				client,
+				`(() => ({
+					url: location.href,
+					queueState: document.querySelector('#ilswq-queue-state').textContent.trim(),
+					queueSummary: document.querySelector('#ilswq-queue-summary').textContent.trim(),
+					resultRows: document.querySelectorAll('#ilswq-results-body tr:not(.ilswq-empty-row)').length,
+					pageOverflows: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+					tableScrolls: document.querySelector('.ilswq-table-wrap').scrollWidth > document.querySelector('.ilswq-table-wrap').clientWidth,
+					pauseDisabled: document.querySelector('#ilswq-queue-pause').disabled,
+					resumeDisabled: document.querySelector('#ilswq-queue-resume').disabled,
+					cancelDisabled: document.querySelector('#ilswq-queue-cancel').disabled
+				}))()`
+			);
+			const browserErrors = client.events.filter((event) => {
+				if (event.method === 'Runtime.exceptionThrown') {
+					return true;
+				}
+				if (event.method === 'Log.entryAdded') {
+					return event.params && event.params.entry && event.params.entry.level === 'error';
+				}
+				return event.method === 'Network.loadingFailed' && event.params && !event.params.canceled;
+			});
+			console.log(JSON.stringify({
+				...diagnostics.result.value,
+				browserErrors: browserErrors.map((event) => ({
+					method: event.method,
+					text: event.params && event.params.errorText ? event.params.errorText : '',
+				})),
+			}));
+		}
 	} finally {
 		client.close();
 	}

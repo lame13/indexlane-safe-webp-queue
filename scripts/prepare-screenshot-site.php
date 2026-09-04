@@ -104,6 +104,11 @@ foreach ( get_posts( array( 'post_type' => 'attachment', 'post_status' => 'any',
 
 ILSWQ_Settings::save( ILSWQ_Settings::defaults() );
 delete_option( ILSWQ_OPTION_CLEANUP_PAGE );
+delete_option( ILSWQ_Queue::JOB_OPTION );
+delete_option( ILSWQ_Queue::AUTO_OPTION );
+delete_option( ILSWQ_Queue::LOCK_OPTION );
+delete_option( ILSWQ_OPTION_ORPHAN_WEBPS );
+wp_clear_scheduled_hook( ILSWQ_Queue::CRON_HOOK );
 
 $uploads = wp_upload_dir();
 if ( ! empty( $uploads['error'] ) ) {

@@ -226,6 +226,236 @@ class ILSWQ_Converter {
 	}
 
 	/**
+	 * Delete generated files owned by one attachment.
+	 *
+	 * Failed paths may be remembered because WordPress removes attachment meta
+	 * after the deletion lifecycle has finished.
+	 *
+	 * @param int  $attachment_id Attachment ID.
+	 * @param bool $remember_failures Whether failed paths need orphan retries.
+	 * @return array<string, int>
+	 */
+	public function delete_generated_for_attachment( $attachment_id, $remember_failures = false ) {
+		$attachment_id = absint( $attachment_id );
+		$paths         = $this->generated_paths_for_cleanup( $attachment_id );
+		$deleted       = 0;
+		$failed        = 0;
+
+		foreach ( $paths as $path ) {
+			if ( ! $this->is_safe_generated_path( $path ) ) {
+				++$failed;
+				continue;
+			}
+
+			$existed = file_exists( $path );
+			if ( $existed ) {
+				wp_delete_file( $path );
+				clearstatcache( true, $path );
+			}
+
+			if ( file_exists( $path ) ) {
+				++$failed;
+				if ( $remember_failures ) {
+					$this->remember_orphan_path( $path );
+				}
+			} elseif ( $existed ) {
+				++$deleted;
+			}
+		}
+
+		if ( 0 === $failed ) {
+			$this->delete_generated_meta( $attachment_id );
+		}
+
+		return array(
+			'deleted' => $deleted,
+			'failed'  => $failed,
+		);
+	}
+
+	/**
+	 * Remove tracked outputs for attachment sizes no longer in current metadata.
+	 *
+	 * @param int                  $attachment_id Attachment ID.
+	 * @param array<string, mixed> $metadata Fresh attachment metadata.
+	 * @return array<string, int>
+	 */
+	public function reconcile_generated_for_metadata( $attachment_id, $metadata ) {
+		$attachment_id = absint( $attachment_id );
+		$map           = ILSWQ_Scanner::get_webp_map( $attachment_id );
+		if ( empty( $map ) ) {
+			return array(
+				'removed' => 0,
+				'failed'  => 0,
+			);
+		}
+
+		$current = array();
+		foreach ( $this->scanner->get_attachment_sources( $attachment_id, $metadata ) as $source ) {
+			if ( empty( $source['name'] ) || empty( $source['path'] ) ) {
+				continue;
+			}
+
+			$name             = sanitize_key( (string) $source['name'] );
+			$source_path      = wp_normalize_path( (string) $source['path'] );
+			$current[ $name ] = array(
+				'source' => $source_path,
+				'webp'   => ILSWQ_Scanner::output_path( $source_path ),
+			);
+		}
+
+		$removed = 0;
+		$failed  = 0;
+		$changed = false;
+
+		foreach ( $map as $name => $entry ) {
+			$source_path = is_array( $entry ) && ! empty( $entry['source'] ) ? wp_normalize_path( (string) $entry['source'] ) : '';
+			$webp_path   = is_array( $entry ) && ! empty( $entry['webp'] ) ? wp_normalize_path( (string) $entry['webp'] ) : '';
+			$key         = sanitize_key( (string) $name );
+			$is_current  = isset( $current[ $key ] ) && $current[ $key ]['source'] === $source_path && $current[ $key ]['webp'] === $webp_path;
+
+			if ( $is_current ) {
+				continue;
+			}
+
+			if ( '' !== $webp_path && file_exists( $webp_path ) ) {
+				if ( ! $this->is_safe_generated_path( $webp_path ) ) {
+					++$failed;
+					continue;
+				}
+
+				wp_delete_file( $webp_path );
+				clearstatcache( true, $webp_path );
+				if ( file_exists( $webp_path ) ) {
+					++$failed;
+					continue;
+				}
+			}
+
+			unset( $map[ $name ] );
+			++$removed;
+			$changed = true;
+		}
+
+		if ( $changed ) {
+			$this->save_generated_map( $attachment_id, $map );
+		}
+
+		return array(
+			'removed' => $removed,
+			'failed'  => $failed,
+		);
+	}
+
+	/**
+	 * Retry remembered paths whose attachment metadata no longer exists.
+	 *
+	 * @param int $limit Maximum paths to inspect.
+	 * @return array<string, int>
+	 */
+	public function cleanup_orphaned_generated( $limit ) {
+		$limit   = max( 1, min( 25, absint( $limit ) ) );
+		$records = get_option( ILSWQ_OPTION_ORPHAN_WEBPS, array() );
+		$records = is_array( $records ) ? $records : array();
+		$deleted = 0;
+		$failed  = 0;
+		$checked = 0;
+		$now     = time();
+
+		foreach ( $records as $key => $record ) {
+			if ( $checked >= $limit ) {
+				continue;
+			}
+			if ( ! is_array( $record ) ) {
+				unset( $records[ $key ] );
+				++$checked;
+				continue;
+			}
+
+			$available_at = isset( $record['available_at'] ) ? (int) $record['available_at'] : 0;
+			if ( $available_at > $now ) {
+				continue;
+			}
+
+			++$checked;
+			$relative = isset( $record['relative'] ) ? (string) $record['relative'] : '';
+			$path     = ILSWQ_Scanner::relative_to_path( $relative );
+
+			if ( '' === $path || ! $this->is_safe_generated_path( $path ) ) {
+				unset( $records[ $key ] );
+				continue;
+			}
+
+			$existed = file_exists( $path );
+			if ( $existed ) {
+				wp_delete_file( $path );
+				clearstatcache( true, $path );
+			}
+
+			if ( file_exists( $path ) ) {
+				++$failed;
+				$attempts               = isset( $record['attempts'] ) ? (int) $record['attempts'] + 1 : 1;
+				$record['attempts']     = $attempts;
+				$record['available_at'] = $now + min( DAY_IN_SECONDS, 60 * (int) pow( 5, max( 0, $attempts - 1 ) ) );
+				$records[ $key ]        = $record;
+			} else {
+				if ( $existed ) {
+					++$deleted;
+				}
+				unset( $records[ $key ] );
+			}
+		}
+
+		if ( empty( $records ) ) {
+			delete_option( ILSWQ_OPTION_ORPHAN_WEBPS );
+		} else {
+			update_option( ILSWQ_OPTION_ORPHAN_WEBPS, $records, false );
+		}
+
+		return array(
+			'deleted' => $deleted,
+			'failed'  => $failed,
+		);
+	}
+
+	/**
+	 * Return scheduling information for remembered orphan paths.
+	 *
+	 * @return array<string, int|bool>
+	 */
+	public function orphan_cleanup_status() {
+		$records = get_option( ILSWQ_OPTION_ORPHAN_WEBPS, array() );
+		$records = is_array( $records ) ? $records : array();
+		$count   = 0;
+		$next    = 0;
+		$due     = false;
+		$now     = time();
+
+		foreach ( $records as $record ) {
+			if ( ! is_array( $record ) ) {
+				++$count;
+				$due = true;
+				continue;
+			}
+			++$count;
+
+			$available = isset( $record['available_at'] ) ? (int) $record['available_at'] : 0;
+			if ( $available <= $now ) {
+				$due = true;
+			}
+			if ( 0 === $next || $available < $next ) {
+				$next = $available;
+			}
+		}
+
+		return array(
+			'count'   => $count,
+			'due'     => $due,
+			'next_at' => $next,
+		);
+	}
+
+	/**
 	 * Convert one source file.
 	 *
 	 * @param array<string, mixed> $source Source.
@@ -341,21 +571,27 @@ class ILSWQ_Converter {
 		}
 
 		$editor_label = false !== strpos( $editor_class, 'Imagick' ) ? 'Imagick' : 'GD';
+		$source_mtime = filemtime( $source_path );
+		$source_mtime = false === $source_mtime ? 0 : (int) $source_mtime;
+		$mime_type    = isset( $source['mime_type'] ) ? (string) $source['mime_type'] : '';
 
 		return array(
 			'entry' => array(
-				'name'        => isset( $source['name'] ) ? sanitize_key( (string) $source['name'] ) : 'full',
-				'label'       => isset( $source['label'] ) ? (string) $source['label'] : '',
-				'source'      => $source_path,
-				'webp'        => $output_path,
-				'source_size' => $original_size,
-				'webp_size'   => $webp_size,
-				'width'       => isset( $source['width'] ) ? (int) $source['width'] : 0,
-				'height'      => isset( $source['height'] ) ? (int) $source['height'] : 0,
-				'mime_type'   => isset( $source['mime_type'] ) ? (string) $source['mime_type'] : '',
-				'editor'      => $editor_label,
-				'created'     => current_time( 'mysql' ),
-				'version'     => ILSWQ_VERSION,
+				'name'         => isset( $source['name'] ) ? sanitize_key( (string) $source['name'] ) : 'full',
+				'label'        => isset( $source['label'] ) ? (string) $source['label'] : '',
+				'source'       => $source_path,
+				'webp'         => $output_path,
+				'source_size'  => $original_size,
+				'webp_size'    => $webp_size,
+				'width'        => isset( $source['width'] ) ? (int) $source['width'] : 0,
+				'height'       => isset( $source['height'] ) ? (int) $source['height'] : 0,
+				'mime_type'    => $mime_type,
+				'editor'       => $editor_label,
+				'quality'      => $quality,
+				'source_mtime' => $source_mtime,
+				'fingerprint'  => ILSWQ_Scanner::generation_fingerprint( $source_path, $original_size, $source_mtime, $mime_type, $quality ),
+				'created'      => current_time( 'mysql' ),
+				'version'      => ILSWQ_VERSION,
 			),
 		);
 	}
@@ -472,14 +708,20 @@ class ILSWQ_Converter {
 	 * @return void
 	 */
 	private function save_generated_map( $attachment_id, $map ) {
-		update_post_meta( $attachment_id, ILSWQ_META_WEBP_FILES, $this->map_for_storage( $map ) );
+		$stored = $this->map_for_storage( $map );
+		if ( empty( $stored ) ) {
+			$this->delete_generated_meta( $attachment_id );
+			return;
+		}
+
+		update_post_meta( $attachment_id, ILSWQ_META_WEBP_FILES, $stored );
 		update_post_meta( $attachment_id, ILSWQ_META_CREATED, current_time( 'mysql' ) );
 		update_post_meta( $attachment_id, ILSWQ_META_VERSION, ILSWQ_VERSION );
 
-		if ( isset( $map['full'] ) && is_array( $map['full'] ) ) {
-			update_post_meta( $attachment_id, ILSWQ_META_WEBP_SIZE, isset( $map['full']['webp_size'] ) ? (int) $map['full']['webp_size'] : 0 );
-			update_post_meta( $attachment_id, ILSWQ_META_SOURCE_SIZE, isset( $map['full']['source_size'] ) ? (int) $map['full']['source_size'] : 0 );
-			update_post_meta( $attachment_id, ILSWQ_META_EDITOR, isset( $map['full']['editor'] ) ? (string) $map['full']['editor'] : '' );
+		if ( isset( $stored['full'] ) && is_array( $stored['full'] ) ) {
+			update_post_meta( $attachment_id, ILSWQ_META_WEBP_SIZE, isset( $stored['full']['webp_size'] ) ? (int) $stored['full']['webp_size'] : 0 );
+			update_post_meta( $attachment_id, ILSWQ_META_SOURCE_SIZE, isset( $stored['full']['source_size'] ) ? (int) $stored['full']['source_size'] : 0 );
+			update_post_meta( $attachment_id, ILSWQ_META_EDITOR, isset( $stored['full']['editor'] ) ? (string) $stored['full']['editor'] : '' );
 		} else {
 			delete_post_meta( $attachment_id, ILSWQ_META_WEBP_SIZE );
 			delete_post_meta( $attachment_id, ILSWQ_META_SOURCE_SIZE );
@@ -510,18 +752,21 @@ class ILSWQ_Converter {
 			}
 
 			$stored[ sanitize_key( (string) $name ) ] = array(
-				'name'        => isset( $entry['name'] ) ? sanitize_key( (string) $entry['name'] ) : sanitize_key( (string) $name ),
-				'label'       => isset( $entry['label'] ) ? sanitize_text_field( (string) $entry['label'] ) : '',
-				'source_rel'  => $source_rel,
-				'webp_rel'    => $webp_rel,
-				'source_size' => isset( $entry['source_size'] ) ? (int) $entry['source_size'] : 0,
-				'webp_size'   => isset( $entry['webp_size'] ) ? (int) $entry['webp_size'] : 0,
-				'width'       => isset( $entry['width'] ) ? (int) $entry['width'] : 0,
-				'height'      => isset( $entry['height'] ) ? (int) $entry['height'] : 0,
-				'mime_type'   => isset( $entry['mime_type'] ) ? sanitize_mime_type( (string) $entry['mime_type'] ) : '',
-				'editor'      => isset( $entry['editor'] ) ? sanitize_text_field( (string) $entry['editor'] ) : '',
-				'created'     => isset( $entry['created'] ) ? sanitize_text_field( (string) $entry['created'] ) : current_time( 'mysql' ),
-				'version'     => ILSWQ_VERSION,
+				'name'         => isset( $entry['name'] ) ? sanitize_key( (string) $entry['name'] ) : sanitize_key( (string) $name ),
+				'label'        => isset( $entry['label'] ) ? sanitize_text_field( (string) $entry['label'] ) : '',
+				'source_rel'   => $source_rel,
+				'webp_rel'     => $webp_rel,
+				'source_size'  => isset( $entry['source_size'] ) ? (int) $entry['source_size'] : 0,
+				'webp_size'    => isset( $entry['webp_size'] ) ? (int) $entry['webp_size'] : 0,
+				'width'        => isset( $entry['width'] ) ? (int) $entry['width'] : 0,
+				'height'       => isset( $entry['height'] ) ? (int) $entry['height'] : 0,
+				'mime_type'    => isset( $entry['mime_type'] ) ? sanitize_mime_type( (string) $entry['mime_type'] ) : '',
+				'editor'       => isset( $entry['editor'] ) ? sanitize_text_field( (string) $entry['editor'] ) : '',
+				'quality'      => ! empty( $entry['quality'] ) ? max( 1, min( 100, absint( $entry['quality'] ) ) ) : 0,
+				'source_mtime' => isset( $entry['source_mtime'] ) ? max( 0, (int) $entry['source_mtime'] ) : 0,
+				'fingerprint'  => isset( $entry['fingerprint'] ) ? sanitize_text_field( (string) $entry['fingerprint'] ) : '',
+				'created'      => isset( $entry['created'] ) ? sanitize_text_field( (string) $entry['created'] ) : current_time( 'mysql' ),
+				'version'      => isset( $entry['version'] ) ? sanitize_text_field( (string) $entry['version'] ) : ILSWQ_VERSION,
 			);
 		}
 
@@ -600,6 +845,30 @@ class ILSWQ_Converter {
 		}
 
 		return array_values( array_unique( array_filter( $paths ) ) );
+	}
+
+	/**
+	 * Remember a safe uploads-relative path after attachment deletion fails.
+	 *
+	 * @param string $path Generated WebP path.
+	 * @return void
+	 */
+	private function remember_orphan_path( $path ) {
+		$relative = ILSWQ_Scanner::path_to_relative( $path );
+		if ( '' === $relative || '.webp' !== substr( strtolower( $relative ), -5 ) ) {
+			return;
+		}
+
+		$records = get_option( ILSWQ_OPTION_ORPHAN_WEBPS, array() );
+		$records = is_array( $records ) ? $records : array();
+		$key     = hash( 'sha256', $relative );
+
+		$records[ $key ] = array(
+			'relative'     => $relative,
+			'attempts'     => 0,
+			'available_at' => time() + 60,
+		);
+		update_option( ILSWQ_OPTION_ORPHAN_WEBPS, $records, false );
 	}
 
 	/**

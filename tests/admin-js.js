@@ -7,8 +7,8 @@ const sourcePath = require.resolve('../assets/admin.js');
 let source = fs.readFileSync(sourcePath, 'utf8');
 
 source = source.replace(
-	'\n\tupdateButtons();\n})(jQuery);',
-	'\n\tglobalThis.ILSWQ_TestHooks = { csvEscape: csvEscape, formatString: formatString, cleanupQueue: cleanupQueue };\n\tupdateButtons();\n})(jQuery);'
+	'\n\trenderQueueStatus(queueStatus);\n\tscheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);\n})(jQuery);',
+	'\n\tglobalThis.ILSWQ_TestHooks = { csvEscape: csvEscape, formatString: formatString, cleanupQueue: cleanupQueue, renderQueueStatus: renderQueueStatus };\n\trenderQueueStatus(queueStatus);\n\tscheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);\n})(jQuery);'
 );
 
 if (!source.includes('ILSWQ_TestHooks')) {
@@ -23,11 +23,15 @@ const cleanupResponses = [
 
 function collection() {
 	return {
+		addClass: function () { return this; },
+		attr: function () { return this; },
 		css: function () { return this; },
+		find: function () { return this; },
 		get: function () { return []; },
 		map: function () { return this; },
 		on: function () { return this; },
 		prop: function () { return this; },
+		removeClass: function () { return this; },
 		text: function () { return this; }
 	};
 }
@@ -49,11 +53,33 @@ const context = {
 	ILSWQ_Admin: {
 		ajaxUrl: 'https://example.test/wp-admin/admin-ajax.php',
 		nonce: 'test-nonce',
-		strings: { cleanupRunning: 'Cleaning' },
+		queue: {
+			exists: false,
+			state: 'none',
+			state_label: 'Not started',
+			progress: 0,
+			automatic_pending: 0,
+			automatic_failed: 0,
+			has_runnable_work: false
+		},
+		strings: {
+			automaticFailedMany: '%d automatic conversions failed',
+			automaticFailedOne: '%d automatic conversion failed',
+			automaticPendingMany: '%d new uploads waiting',
+			automaticPendingOne: '%d new upload waiting',
+			cleanupRunning: 'Cleaning',
+			queueComplete: 'Conversion job complete.',
+			queueCompleteWithFailures: '%d conversions failed',
+			queueConflictComplete: 'Conversion job completed with conflicts',
+			queueLastActivity: 'Last activity: %s'
+		},
 		csvHeaders: []
 	},
 	jQuery: jQuery,
-	window: {}
+	window: {
+		clearTimeout: clearTimeout,
+		setTimeout: setTimeout
+	}
 };
 context.globalThis = context;
 
@@ -71,6 +97,7 @@ assertEqual(context.ILSWQ_TestHooks.csvEscape('+1,000'), '"\'+1,000"', 'Quoted f
 assertEqual(context.ILSWQ_TestHooks.csvEscape('photo.jpg'), 'photo.jpg', 'Safe CSV value changed');
 assertEqual(context.ILSWQ_TestHooks.formatString('Select %s', ['Photo']), 'Select Photo', 'Sequential string placeholder was not replaced');
 assertEqual(context.ILSWQ_TestHooks.formatString('%2$d failed; %1$d passed', [4, 2]), '2 failed; 4 passed', 'Positional string placeholders were not replaced');
+context.ILSWQ_TestHooks.renderQueueStatus(context.ILSWQ_Admin.queue);
 
 context.ILSWQ_TestHooks.cleanupQueue(0, 0, true).then(function () {
 	assertEqual(requests.length, 2, 'Cleanup did not request both pages');

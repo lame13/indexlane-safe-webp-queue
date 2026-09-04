@@ -15,3 +15,8 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 
 delete_option( 'ilswq_settings' );
 delete_option( 'ilswq_cleanup_page' );
+delete_option( 'ilswq_queue_job' );
+delete_option( 'ilswq_auto_queue' );
+delete_option( 'ilswq_queue_lock' );
+delete_option( 'ilswq_orphan_webps' );
+wp_clear_scheduled_hook( 'ilswq_process_queue' );

@@ -8,6 +8,10 @@
 	var pauseRequested = false;
 	var stopRequested = false;
 	var resumeAction = null;
+	var foregroundCanPause = false;
+	var queueStatus = ILSWQ_Admin.queue || null;
+	var queueRequestRunning = false;
+	var queueTimer = null;
 
 	function getSettings() {
 		var $form = $('#ilswq-settings-form');
@@ -23,10 +27,11 @@
 		};
 	}
 
-	function setBusy(nextBusy) {
+	function setBusy(nextBusy, canPause) {
 		isBusy = nextBusy;
+		foregroundCanPause = nextBusy && !!canPause;
 		$('#ilswq-scan, #ilswq-convert, #ilswq-validate-webp, #ilswq-export, #ilswq-cleanup, #ilswq-settings-form button').prop('disabled', nextBusy);
-		$('#ilswq-pause, #ilswq-stop').prop('disabled', !nextBusy);
+		$('#ilswq-pause, #ilswq-stop').prop('disabled', !foregroundCanPause);
 		updateButtons();
 	}
 
@@ -36,12 +41,20 @@
 		var hasConverted = rows.some(function (row) {
 			return (row.generated_source_count || 0) > 0;
 		});
+		var hasActiveJob = queueStatus && queueStatus.can_cancel;
+		var hasQueuedFileWork = hasActiveJob || (queueStatus && queueStatus.automatic_pending > 0);
 
 		$('#ilswq-export').prop('disabled', isBusy || !hasRows);
-		$('#ilswq-convert').prop('disabled', isBusy || !hasEligible);
+		$('#ilswq-convert').prop('disabled', isBusy || hasActiveJob || !hasEligible);
 		$('#ilswq-validate-webp').prop('disabled', isBusy || !hasConverted);
 		$('#ilswq-check-all').prop('disabled', isBusy || !hasRows);
 		$('#ilswq-resume').prop('disabled', isBusy || !resumeAction);
+		$('#ilswq-scan').prop('disabled', isBusy || hasActiveJob);
+		$('#ilswq-cleanup').prop('disabled', isBusy || hasQueuedFileWork);
+		$('#ilswq-queue-pause').prop('disabled', isBusy || !queueStatus || !queueStatus.can_pause);
+		$('#ilswq-queue-resume').prop('disabled', isBusy || !queueStatus || !queueStatus.can_resume);
+		$('#ilswq-queue-cancel').prop('disabled', isBusy || !queueStatus || !queueStatus.can_cancel);
+		$('#ilswq-queue-retry').prop('disabled', isBusy || !queueStatus || !queueStatus.can_retry);
 	}
 
 	function showNotice(message, type) {
@@ -94,6 +107,142 @@
 		return String(template).replace(/%(?:(\d+)\$)?[sd]/g, function (_match, position) {
 			var index = position ? parseInt(position, 10) - 1 : nextIndex++;
 			return values[index] === undefined || values[index] === null ? '' : String(values[index]);
+		});
+	}
+
+	function setOptionalText(selector, value) {
+		$(selector).text(value || '').prop('hidden', !value);
+	}
+
+	function renderQueueStatus(status, announceCompletion) {
+		var previousState = queueStatus && queueStatus.state;
+		queueStatus = status || {
+			exists: false,
+			state: 'none',
+			state_label: '',
+			progress: 0,
+			automatic_pending: 0,
+			automatic_failed: 0
+		};
+
+		var state = /^[a-z-]+$/.test(queueStatus.state || '') ? queueStatus.state : 'none';
+		var progress = Math.max(0, Math.min(100, parseInt(queueStatus.progress, 10) || 0));
+		var automaticPending = parseInt(queueStatus.automatic_pending, 10) || 0;
+		var automaticFailed = parseInt(queueStatus.automatic_failed, 10) || 0;
+		var automaticMessage = '';
+		var automaticFailureMessage = '';
+
+		if (automaticPending === 1) {
+			automaticMessage = formatString(ILSWQ_Admin.strings.automaticPendingOne, [automaticPending]);
+		} else if (automaticPending > 1) {
+			automaticMessage = formatString(ILSWQ_Admin.strings.automaticPendingMany, [automaticPending]);
+		}
+
+		if (automaticFailed === 1) {
+			automaticFailureMessage = formatString(ILSWQ_Admin.strings.automaticFailedOne, [automaticFailed]);
+		} else if (automaticFailed > 1) {
+			automaticFailureMessage = formatString(ILSWQ_Admin.strings.automaticFailedMany, [automaticFailed]);
+		}
+
+		$('#ilswq-queue-state')
+			.removeClass()
+			.addClass('ilswq-status is-' + state)
+			.text(queueStatus.state_label || '');
+		$('.ilswq-queue-progress')
+			.attr('aria-valuenow', progress)
+			.find('span')
+			.css('width', progress + '%');
+		$('#ilswq-queue-summary').text(queueStatus.summary || '');
+		setOptionalText('#ilswq-queue-settings', queueStatus.settings_summary || '');
+		setOptionalText(
+			'#ilswq-queue-activity',
+			queueStatus.last_activity_label
+				? formatString(ILSWQ_Admin.strings.queueLastActivity, [queueStatus.last_activity_label])
+				: ''
+		);
+		setOptionalText('#ilswq-queue-error', queueStatus.last_error || '');
+		setOptionalText('#ilswq-auto-pending', automaticMessage);
+		setOptionalText('#ilswq-auto-failed', automaticFailureMessage);
+
+		if (announceCompletion && ['queued', 'running'].indexOf(previousState) !== -1 && queueStatus.state === 'completed') {
+			if ((parseInt(queueStatus.failed, 10) || 0) > 0) {
+				showNotice(
+					formatString(ILSWQ_Admin.strings.queueCompleteWithFailures, [queueStatus.failed]),
+					'error'
+				);
+			} else if ((parseInt(queueStatus.conflicts, 10) || 0) > 0) {
+				showNotice(ILSWQ_Admin.strings.queueConflictComplete, 'error');
+			} else {
+				showNotice(ILSWQ_Admin.strings.queueComplete, 'success');
+			}
+		}
+		updateButtons();
+	}
+
+	function clearQueueTimer() {
+		if (queueTimer) {
+			window.clearTimeout(queueTimer);
+			queueTimer = null;
+		}
+	}
+
+	function scheduleQueueTick(delay) {
+		clearQueueTimer();
+		if (!queueStatus || (!queueStatus.has_runnable_work && !queueStatus.automatic_pending)) {
+			return;
+		}
+
+		queueTimer = window.setTimeout(processQueueTick, delay);
+	}
+
+	function processQueueTick() {
+		if (queueRequestRunning || !queueStatus) {
+			return;
+		}
+
+		if (!queueStatus.has_runnable_work) {
+			refreshQueueStatus(5000);
+			return;
+		}
+
+		queueRequestRunning = true;
+		var nextDelay = 5000;
+		ajax('ilswq_queue_process', {}).then(function (data) {
+			renderQueueStatus(data.queue || null, true);
+			if (data.rows && data.rows.length) {
+				upsertRows(data.rows);
+			}
+			if (data.error) {
+				showNotice(data.error, 'error');
+			}
+			nextDelay = data.busy ? 5000 : (queueStatus && queueStatus.has_runnable_work ? 150 : 5000);
+		}).fail(function (message) {
+			showAjaxError(message);
+		}).always(function () {
+			queueRequestRunning = false;
+			scheduleQueueTick(nextDelay);
+		});
+	}
+
+	function refreshQueueStatus(nextDelay) {
+		ajax('ilswq_queue_status', {}).then(function (data) {
+			renderQueueStatus(data.queue || null, true);
+			scheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : (nextDelay || 5000));
+		}).fail(function (message) {
+			showAjaxError(message);
+			scheduleQueueTick(nextDelay || 5000);
+		});
+	}
+
+	function sendQueueCommand(command) {
+		clearNotice();
+		clearQueueTimer();
+		setBusy(true);
+		ajax('ilswq_queue_command', { command: command }).then(function (data) {
+			renderQueueStatus(data.queue || null);
+			scheduleQueueTick(100);
+		}).fail(showAjaxError).always(function () {
+			setBusy(false);
 		});
 	}
 
@@ -273,7 +422,7 @@
 			resumeAction = function () {
 				clearNotice();
 				pauseRequested = false;
-				setBusy(true);
+				setBusy(true, true);
 				scanPage(page, scanned, knownTotal).then(finishScan).fail(showAjaxError).always(finishBusy);
 			};
 			return $.Deferred().resolve({ paused: true }).promise();
@@ -296,44 +445,6 @@
 			}
 
 			return data;
-		});
-	}
-
-	function convertQueue(ids, processed, total) {
-		if (stopRequested) {
-			return $.Deferred().resolve({ stopped: true }).promise();
-		}
-
-		if (pauseRequested) {
-			var remaining = ids.slice(0);
-			resumeAction = function () {
-				clearNotice();
-				pauseRequested = false;
-				setBusy(true);
-				convertQueue(remaining, processed, total).then(finishConvert).fail(showAjaxError).always(finishBusy);
-			};
-			return $.Deferred().resolve({ paused: true }).promise();
-		}
-
-		var settings = getSettings();
-		var batchSize = Math.max(1, Math.min(10, settings.batch_size || 3));
-		var batch = ids.splice(0, batchSize);
-
-		if (!batch.length) {
-			return $.Deferred().resolve().promise();
-		}
-
-		setProgress(ILSWQ_Admin.strings.converting, processed, total);
-
-		return ajax('ilswq_convert', {
-			ids: batch,
-			settings: settings
-		}).then(function (data) {
-			upsertRows(data.rows || []);
-			processed += batch.length;
-			setProgress(ILSWQ_Admin.strings.converting, processed, total);
-
-			return convertQueue(ids, processed, total);
 		});
 	}
 
@@ -406,20 +517,6 @@
 		showNotice(ILSWQ_Admin.strings.scanComplete, 'success');
 	}
 
-	function finishConvert(result) {
-		if (result && result.paused) {
-			showNotice(ILSWQ_Admin.strings.paused, 'success');
-			return;
-		}
-
-		if (result && result.stopped) {
-			showNotice(ILSWQ_Admin.strings.stopped, 'success');
-			return;
-		}
-
-		showNotice(ILSWQ_Admin.strings.convertComplete, 'success');
-	}
-
 	function exportCsv() {
 		if (!rows.length) {
 			showNotice(ILSWQ_Admin.strings.noRows, 'error');
@@ -481,7 +578,7 @@
 		resetRows();
 		$('#ilswq-check-all').prop('checked', false);
 		prepareQueueRun();
-		setBusy(true);
+		setBusy(true, true);
 
 		scanPage(1, 0, 0).then(finishScan).fail(showAjaxError).always(finishBusy);
 	});
@@ -495,10 +592,18 @@
 		}
 
 		clearNotice();
-		prepareQueueRun();
 		setBusy(true);
 
-		convertQueue(ids, 0, ids.length).then(finishConvert).fail(showAjaxError).always(finishBusy);
+		ajax('ilswq_queue_start', {
+			ids: JSON.stringify(ids),
+			settings: getSettings()
+		}).then(function (data) {
+			renderQueueStatus(data.queue || null);
+			showNotice(ILSWQ_Admin.strings.convertStarted, 'success');
+			scheduleQueueTick(100);
+		}).fail(showAjaxError).always(function () {
+			setBusy(false);
+		});
 	});
 
 	$('#ilswq-resume').on('click', function () {
@@ -516,6 +621,24 @@
 	$('#ilswq-stop').on('click', function () {
 		stopRequested = true;
 		resumeAction = null;
+	});
+
+	$('#ilswq-queue-pause').on('click', function () {
+		sendQueueCommand('pause');
+	});
+
+	$('#ilswq-queue-resume').on('click', function () {
+		sendQueueCommand('resume');
+	});
+
+	$('#ilswq-queue-cancel').on('click', function () {
+		if (window.confirm(ILSWQ_Admin.strings.queueCancelConfirm)) {
+			sendQueueCommand('cancel');
+		}
+	});
+
+	$('#ilswq-queue-retry').on('click', function () {
+		sendQueueCommand('retry');
 	});
 
 	$('#ilswq-export').on('click', function () {
@@ -593,5 +716,6 @@
 		applyFilter();
 	});
 
-	updateButtons();
+	renderQueueStatus(queueStatus);
+	scheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);
 })(jQuery);

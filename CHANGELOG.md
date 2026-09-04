@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 - 2026-09-04
+
+- Added a persistent, resumable conversion queue with bounded batches, duplicate-worker locking, progress reporting, pause, resume, cancel, and failed-item retry controls.
+- Moved automatic new-upload conversion out of the upload request and into retryable WP-Cron work.
+- Added generation fingerprints so source-file or quality-setting changes are detected before plugin-owned WebP files are safely regenerated.
+- Reconciled plugin-owned WebP files when attachment sizes change and cleaned them up when attachments are deleted.
+- Retained failed attachment cleanup as background orphan work so temporary deletion failures can be retried safely.
+- Expanded browser and WordPress smoke coverage for persistent jobs, retries, asynchronous uploads, fingerprints, and attachment lifecycle cleanup.
+
 ## 0.1.5 - 2026-08-28
 
 - Renamed the displayed plugin to IndexLane Safe WebP Queue and removed the third-party update URI.

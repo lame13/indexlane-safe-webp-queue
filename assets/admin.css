@@ -94,6 +94,50 @@
 	padding: 0;
 }
 
+.ilswq-queue-panel {
+	margin: 18px 0;
+}
+
+.ilswq-queue-heading {
+	display: flex;
+	gap: 16px;
+	align-items: flex-start;
+	justify-content: space-between;
+}
+
+.ilswq-queue-heading h2 {
+	margin-bottom: 4px;
+}
+
+.ilswq-queue-heading p,
+.ilswq-queue-summary,
+.ilswq-queue-consequence {
+	margin: 0;
+}
+
+.ilswq-queue-progress {
+	margin: 14px 0 10px;
+}
+
+.ilswq-queue-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.ilswq-queue-consequence {
+	margin-top: 10px;
+}
+
+.ilswq-queue-error {
+	margin: 10px 0 0;
+	padding: 8px 10px;
+	border-left: 4px solid #d63638;
+	background: #fcf0f1;
+	color: #8a2424;
+}
+
 .ilswq-toolbar {
 	display: flex;
 	flex-wrap: wrap;
@@ -252,8 +296,34 @@
 	color: #b32d2e;
 }
 
+.ilswq-status.is-running,
+.ilswq-status.is-queued {
+	background: #e5f5fa;
+	color: #007cba;
+}
+
+.ilswq-status.is-paused {
+	background: #fcf9e8;
+	color: #8a6500;
+}
+
+.ilswq-status.is-completed {
+	background: #e7f5ea;
+	color: #008a20;
+}
+
+.ilswq-status.is-cancelled {
+	background: #f0f0f1;
+	color: #50575e;
+}
+
 @media (max-width: 960px) {
 	.ilswq-layout {
 		grid-template-columns: 1fr;
+	}
+
+	.ilswq-queue-heading {
+		align-items: flex-start;
+		flex-direction: column;
 	}
 }
