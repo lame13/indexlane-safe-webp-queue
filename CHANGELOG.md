@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 - 2026-09-08
+
+- Added report search by filename, attachment title, and ID with matching result counts.
+- Made CSV exports and conversion selection respect the active search and status filter, including selecting only visible eligible images.
+- Added a clear-search control, a no-results message, and accessible status-filter states.
+- Included existing WebP results in the Skipped filter and convertible review items in the Eligible filter to match their counters.
+
 ## 0.2.0 - 2026-09-04
 
 - Added a persistent, resumable conversion queue with bounded batches, duplicate-worker locking, progress reporting, pause, resume, cancel, and failed-item retry controls.

@@ -264,7 +264,56 @@ async function waitFor(client, expression, timeoutMs = 20000) {
 	throw new Error(`Timed out waiting for: ${expression}`);
 }
 
+async function assertBrowser(client, expression, message) {
+	const result = await evaluate(client, expression);
+	if (!result.result || result.result.value !== true) {
+		throw new Error(message);
+	}
+}
+
+async function checkReportSearch(client) {
+	await evaluate(client, `window.ilswqTestSearch = function (value) {
+		const input = document.querySelector('#ilswq-search');
+		input.value = value;
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+	};
+	window.ilswqTestVisible = function () {
+		return Array.from(document.querySelectorAll('#ilswq-results-body tr:not(.ilswq-empty-row)')).filter(row => row.style.display !== 'none');
+	};
+	ilswqTestSearch('  MOUNTAIN  '); true;`);
+	await assertBrowser(client, `ilswqTestVisible().length === 1 && ilswqTestVisible()[0].textContent.includes('Mountain Landscape') && document.querySelector('#ilswq-report-count').textContent === 'Showing 1 of 3 images.'`, 'Search did not trim whitespace, ignore case, or update the result count.');
+	await evaluate(client, `window.ilswqTestOriginalUrl = URL.createObjectURL;
+	window.ilswqTestOriginalClick = HTMLAnchorElement.prototype.click;
+	URL.createObjectURL = function (blob) { window.ilswqTestCsv = blob.text(); return ilswqTestOriginalUrl.call(URL, blob); };
+	HTMLAnchorElement.prototype.click = function () {};
+	document.querySelector('#ilswq-export').click();
+	URL.createObjectURL = ilswqTestOriginalUrl;
+	HTMLAnchorElement.prototype.click = ilswqTestOriginalClick;
+	true;`);
+	await assertBrowser(client, `ilswqTestCsv.then(csv => csv.split('\\r\\n').length === 2 && csv.includes('mountain-landscape.jpg') && !csv.includes('transparent-brand-artwork.png'))`, 'CSV did not contain only the matching image.');
+	await evaluate(client, `ilswqTestSearch('no-such-image'); true;`);
+	await assertBrowser(client, `ilswqTestVisible().length === 0 && document.querySelector('.ilswq-empty-row').textContent.includes('No images match') && document.querySelector('#ilswq-export').disabled && document.querySelector('#ilswq-convert').disabled && document.querySelector('#ilswq-check-all').disabled`, 'Empty search did not explain the state or disable unavailable actions.');
+	await evaluate(client, `ilswqTestSearch('mountain'); document.querySelector('[data-ilswq-filter="conflict"]').click(); true;`);
+	await assertBrowser(client, `ilswqTestVisible().length === 0 && document.querySelector('[data-ilswq-filter="conflict"]').getAttribute('aria-pressed') === 'true'`, 'Search and status filters were not combined.');
+	await evaluate(client, `document.querySelector('#ilswq-search-clear').click(); true;`);
+	await assertBrowser(client, `ilswqTestVisible().length === 1 && ilswqTestVisible()[0].textContent.includes('Editorial Photo') && document.activeElement.id === 'ilswq-search' && document.querySelector('#ilswq-search-clear').disabled && document.querySelector('#ilswq-convert').disabled`, 'Clear search lost the status filter, focus, or ineligible-image protection.');
+	await evaluate(client, `document.querySelector('[data-ilswq-filter="all"]').click(); ilswqTestSearch('artwork.png'); true;`);
+	await assertBrowser(client, `ilswqTestVisible().length === 1 && ilswqTestVisible()[0].textContent.includes('Transparent Brand Artwork')`, 'Filename search failed.');
+	await evaluate(client, `ilswqTestSearch(ilswqTestVisible()[0].id.replace('ilswq-row-', '')); true;`);
+	await assertBrowser(client, `ilswqTestVisible().length === 1 && ilswqTestVisible()[0].textContent.includes('Transparent Brand Artwork')`, 'Attachment ID search failed.');
+	await evaluate(client, `ilswqTestSearch('mountain'); document.querySelector('#ilswq-check-all').click(); true;`);
+	await assertBrowser(client, `document.querySelector('#ilswq-convert').disabled && document.querySelectorAll('.ilswq-row-check:checked').length === 1`, 'Select all changed a hidden image selection.');
+	await evaluate(client, `document.querySelector('#ilswq-search-clear').click(); true;`);
+	await assertBrowser(client, `document.querySelector('#ilswq-check-all').indeterminate && !document.querySelector('#ilswq-convert').disabled`, 'Restored report did not reflect partial selection.');
+	await evaluate(client, `ilswqTestSearch('mountain'); document.querySelector('#ilswq-check-all').click(); document.querySelector('#ilswq-convert').click(); true;`);
+	await waitFor(client, `!!document.querySelector('#ilswq-queue-state.is-completed')`, 60000);
+	await assertBrowser(client, `document.querySelector('#ilswq-queue-summary').textContent.startsWith('1 of 1 attachments processed.') && document.querySelectorAll('.ilswq-row-check:checked').length === 1`, 'Conversion queued a hidden selected image.');
+	await screenshot(client, 'qa-report-search.png');
+	await evaluate(client, `document.querySelector('#ilswq-search-clear').click(); true;`);
+}
+
 async function screenshot(client, fileName) {
+	await evaluate(client, `Promise.all(document.querySelector('.ilswq-queue-progress span').getAnimations().map(animation => animation.finished.catch(() => {}))).then(() => true)`);
 	const result = await client.send('Page.captureScreenshot', {
 		format: 'png',
 		fromSurface: true,
@@ -333,6 +382,12 @@ true;`
 		await evaluate(client, 'window.scrollTo(0, 0); true;');
 		await screenshot(client, 'screenshot-1.png');
 
+		if (qaMode) {
+			await evaluate(client, `document.querySelector('#ilswq-search').value = 'before scan'; document.querySelector('#ilswq-search').dispatchEvent(new Event('input', { bubbles: true })); true;`);
+			await assertBrowser(client, `document.querySelector('.ilswq-empty-row').textContent.includes('Run a scan') && document.querySelector('#ilswq-export').disabled`, 'Searching before a scan removed the starting instructions.');
+			await evaluate(client, `document.querySelector('#ilswq-search-clear').click(); true;`);
+		}
+
 		await evaluate(client, 'document.querySelector("#ilswq-scan").click(); true;');
 		await waitFor(
 			client,
@@ -344,11 +399,15 @@ document.querySelectorAll('#ilswq-results-body tr:not(.ilswq-empty-row)').length
 		await evaluate(client, 'document.querySelector(".ilswq-report-panel").scrollIntoView(); true;');
 		await screenshot(client, 'screenshot-2.png');
 
+		if (qaMode) {
+			await checkReportSearch(client);
+		}
+
 		await evaluate(client, 'document.querySelector("#ilswq-convert").click(); true;');
 		await waitFor(
 			client,
 			`document.querySelector('#ilswq-queue-state.is-completed') &&
-document.querySelectorAll('.ilswq-status.is-converted, .ilswq-status.is-needs-review').length > 0`,
+document.querySelectorAll('.ilswq-status.is-converted, .ilswq-status.is-needs-review').length >= ${qaMode ? 2 : 1}`,
 			60000
 		);
 		await evaluate(client, 'document.querySelector(".ilswq-report-panel").scrollIntoView(); true;');
@@ -374,6 +433,9 @@ true;`
 			await screenshot(client, 'qa-mobile-queue.png');
 			await evaluate(client, 'document.querySelector(".ilswq-report-panel").scrollIntoView(); true;');
 			await screenshot(client, 'qa-mobile-report.png');
+			await evaluate(client, `ilswqTestSearch('artwork'); document.querySelector('.ilswq-report-search').scrollIntoView(); true;`);
+			await screenshot(client, 'qa-mobile-search.png');
+			await assertBrowser(client, `document.documentElement.scrollWidth <= document.documentElement.clientWidth && ilswqTestVisible().length === 1`, 'Search overflowed the narrow viewport or lost its results.');
 
 			await navigate(client, `${baseUrl}/wp-admin/tools.php?page=indexlane-safe-webp-queue`);
 			await waitFor(client, '!!document.querySelector("#ilswq-scan")');
@@ -406,11 +468,15 @@ true;`
 			});
 			console.log(JSON.stringify({
 				...diagnostics.result.value,
+				reportSearchChecks: 'passed',
 				browserErrors: browserErrors.map((event) => ({
 					method: event.method,
 					text: event.params && event.params.errorText ? event.params.errorText : '',
 				})),
 			}));
+			if (diagnostics.result.value.pageOverflows || browserErrors.length) {
+				throw new Error('Browser QA found page overflow or browser errors.');
+			}
 		}
 	} finally {
 		client.close();

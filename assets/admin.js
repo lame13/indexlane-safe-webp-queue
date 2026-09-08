@@ -5,6 +5,7 @@
 	var rowMap = {};
 	var isBusy = false;
 	var activeFilter = 'all';
+	var searchQuery = '';
 	var pauseRequested = false;
 	var stopRequested = false;
 	var resumeAction = null;
@@ -36,8 +37,10 @@
 	}
 
 	function updateButtons() {
-		var hasRows = rows.length > 0;
-		var hasEligible = getSelectedEligibleIds().length > 0;
+		var hasRows = rows.some(matchesReportRow);
+		var $eligible = visibleEligibleCheckboxes();
+		var selectedCount = $eligible.filter(':checked').length;
+		var hasEligible = selectedCount > 0;
 		var hasConverted = rows.some(function (row) {
 			return (row.generated_source_count || 0) > 0;
 		});
@@ -47,7 +50,10 @@
 		$('#ilswq-export').prop('disabled', isBusy || !hasRows);
 		$('#ilswq-convert').prop('disabled', isBusy || hasActiveJob || !hasEligible);
 		$('#ilswq-validate-webp').prop('disabled', isBusy || !hasConverted);
-		$('#ilswq-check-all').prop('disabled', isBusy || !hasRows);
+		$('#ilswq-check-all')
+			.prop('disabled', isBusy || !$eligible.length)
+			.prop('checked', $eligible.length > 0 && selectedCount === $eligible.length)
+			.prop('indeterminate', selectedCount > 0 && selectedCount < $eligible.length);
 		$('#ilswq-resume').prop('disabled', isBusy || !resumeAction);
 		$('#ilswq-scan').prop('disabled', isBusy || hasActiveJob);
 		$('#ilswq-cleanup').prop('disabled', isBusy || hasQueuedFileWork);
@@ -251,11 +257,11 @@
 		rowMap = {};
 		$('#ilswq-results-body').empty();
 		updateCounts();
-		updateButtons();
+		applyFilter();
 	}
 
-	function renderEmptyRow() {
-		return '<tr class="ilswq-empty-row"><td colspan="12">' + escapeHtml(ILSWQ_Admin.strings.noRows) + '</td></tr>';
+	function renderEmptyRow(message) {
+		return '<tr class="ilswq-empty-row"><td colspan="12">' + escapeHtml(message || ILSWQ_Admin.strings.noRows) + '</td></tr>';
 	}
 
 	function upsertRows(newRows) {
@@ -264,7 +270,6 @@
 		});
 		updateCounts();
 		applyFilter();
-		updateButtons();
 	}
 
 	function upsertRow(row) {
@@ -364,8 +369,15 @@
 		$('#ilswq-count-conflict').text(counts.conflict);
 	}
 
+	function visibleEligibleCheckboxes() {
+		return $('.ilswq-row-check').filter(function () {
+			var row = rows[rowMap[this.value]];
+			return row && row.eligible && matchesReportRow(row);
+		});
+	}
+
 	function getSelectedEligibleIds() {
-		return $('.ilswq-row-check:checked').map(function () {
+		return visibleEligibleCheckboxes().filter(':checked').map(function () {
 			return parseInt(this.value, 10);
 		}).get();
 	}
@@ -380,15 +392,37 @@
 		});
 	}
 
+	function matchesReportRow(row) {
+		var matchesStatus = activeFilter === 'all' || row.status_key === activeFilter;
+		if (activeFilter === 'eligible') {
+			matchesStatus = !!row.eligible;
+		} else if (activeFilter === 'skipped') {
+			matchesStatus = row.status_key === 'skipped' || row.status_key === 'already-exists';
+		}
+
+		return matchesStatus && (!searchQuery || [row.title, row.file, row.id].some(function (value) {
+			return String(value === null || value === undefined ? '' : value).toLowerCase().indexOf(searchQuery) !== -1;
+		}));
+	}
+
 	function applyFilter() {
-		$('.ilswq-results tbody tr').each(function () {
-			var status = $(this).data('ilswq-status');
-			if (!status || activeFilter === 'all' || status === activeFilter) {
-				$(this).show();
-			} else {
-				$(this).hide();
+		var visibleCount = 0;
+		$('.ilswq-empty-row').remove();
+		$.each(rows, function (_, row) {
+			var visible = matchesReportRow(row);
+			$('#ilswq-row-' + row.id).toggle(visible);
+			if (visible) {
+				visibleCount++;
 			}
 		});
+		if (!visibleCount) {
+			$('#ilswq-results-body').append(renderEmptyRow(rows.length ? ILSWQ_Admin.strings.noMatches : ILSWQ_Admin.strings.noRows));
+		}
+		$('#ilswq-report-count')
+			.text(formatString(ILSWQ_Admin.strings.reportCount, [visibleCount, rows.length]))
+			.prop('hidden', !rows.length);
+		$('#ilswq-search-clear').prop('disabled', !$('#ilswq-search').val());
+		updateButtons();
 	}
 
 	function prepareQueueRun() {
@@ -518,15 +552,16 @@
 	}
 
 	function exportCsv() {
-		if (!rows.length) {
-			showNotice(ILSWQ_Admin.strings.noRows, 'error');
+		var visibleRows = rows.filter(matchesReportRow);
+		if (!visibleRows.length) {
+			showNotice(rows.length ? ILSWQ_Admin.strings.noMatches : ILSWQ_Admin.strings.noRows, 'error');
 			return;
 		}
 
 		var headers = ILSWQ_Admin.csvHeaders;
 		var lines = [headers.map(csvEscape).join(',')];
 
-		$.each(rows, function (_, row) {
+		$.each(visibleRows, function (_, row) {
 			lines.push([
 				row.id,
 				row.title,
@@ -700,8 +735,11 @@
 		});
 	});
 
-	$('#ilswq-check-all').on('change', function () {
-		$('.ilswq-row-check').prop('checked', $(this).is(':checked'));
+	// Keep WordPress's bulk checkbox handler from clearing hidden selections.
+	$('#ilswq-check-all').on('click', function (event) {
+		event.stopPropagation();
+	}).on('change', function () {
+		visibleEligibleCheckboxes().prop('checked', $(this).is(':checked'));
 		updateButtons();
 	});
 
@@ -711,9 +749,18 @@
 
 	$('.ilswq-filters').on('click', '[data-ilswq-filter]', function () {
 		activeFilter = $(this).data('ilswq-filter');
-		$('.ilswq-filters [data-ilswq-filter]').removeClass('is-active');
-		$(this).addClass('is-active');
+		$('.ilswq-filters [data-ilswq-filter]').removeClass('is-active').attr('aria-pressed', 'false');
+		$(this).addClass('is-active').attr('aria-pressed', 'true');
 		applyFilter();
+	});
+
+	$('#ilswq-search').on('input search', function () {
+		searchQuery = String($(this).val() || '').trim().toLowerCase();
+		applyFilter();
+	});
+
+	$('#ilswq-search-clear').on('click', function () {
+		$('#ilswq-search').val('').trigger('input').trigger('focus');
 	});
 
 	renderQueueStatus(queueStatus);

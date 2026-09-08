@@ -148,6 +148,9 @@ class ILSWQ_Plugin {
 					'queueCompleteWithFailures' => __( 'Conversion job finished with %d failed attachments. Review the error and use Retry Failed.', 'indexlane-safe-webp-queue' ),
 					'queueConflictComplete'     => __( 'Conversion job finished with conflicting files. Review the queue summary and last error, resolve the conflicts, then scan again.', 'indexlane-safe-webp-queue' ),
 					'noRows'                    => __( 'Run a scan to build a report.', 'indexlane-safe-webp-queue' ),
+					'noMatches'                 => __( 'No images match this search and filter. Clear the search or choose another status.', 'indexlane-safe-webp-queue' ),
+					/* translators: 1: visible image count, 2: total image count in the report. */
+					'reportCount'               => __( 'Showing %1$d of %2$d images.', 'indexlane-safe-webp-queue' ),
 					'noEligible'                => __( 'No eligible rows are selected.', 'indexlane-safe-webp-queue' ),
 					'requestFailed'             => __( 'Request failed.', 'indexlane-safe-webp-queue' ),
 					/* translators: %s: attachment title, filename, or ID. */
@@ -212,10 +215,10 @@ class ILSWQ_Plugin {
 		<div class="wrap ilswq-wrap">
 			<h1><?php esc_html_e( 'IndexLane Safe WebP Queue', 'indexlane-safe-webp-queue' ); ?></h1>
 			<p class="ilswq-lede">
-				<?php esc_html_e( 'Convert JPEG and PNG media attachments and their generated image sizes to sibling WebP files in small local batches. Originals are preserved and post content is not rewritten.', 'indexlane-safe-webp-queue' ); ?>
+				<?php esc_html_e( 'Give your images a lighter WebP version while keeping your originals. Scan your Media Library, choose what to convert, and see the size savings for each image.', 'indexlane-safe-webp-queue' ); ?>
 			</p>
 			<p class="ilswq-lede">
-				<?php esc_html_e( 'Frontend WebP serving is optional and only swaps normal WordPress image output where this plugin has generated a matching WebP file.', 'indexlane-safe-webp-queue' ); ?>
+				<?php esc_html_e( 'Ready to use WebP on your site? Enable frontend serving in Settings. It uses matching WebP copies in normal WordPress image output; your saved content and attachment URLs stay unchanged.', 'indexlane-safe-webp-queue' ); ?>
 			</p>
 
 			<div class="ilswq-layout">
@@ -365,21 +368,31 @@ class ILSWQ_Plugin {
 
 				<div id="ilswq-notice" class="ilswq-notice" hidden></div>
 
+				<div class="ilswq-report-search">
+					<label for="ilswq-search"><?php esc_html_e( 'Search report', 'indexlane-safe-webp-queue' ); ?></label>
+					<div class="ilswq-search-controls">
+						<input type="search" id="ilswq-search" aria-describedby="ilswq-search-help">
+						<button type="button" class="button" id="ilswq-search-clear" disabled><?php esc_html_e( 'Clear search', 'indexlane-safe-webp-queue' ); ?></button>
+					</div>
+					<p id="ilswq-search-help" class="description"><?php esc_html_e( 'Find images by filename, title, or attachment ID. Convert Selected and Export CSV use only the results shown below.', 'indexlane-safe-webp-queue' ); ?></p>
+					<p id="ilswq-report-count" class="description" role="status" hidden></p>
+				</div>
+
 				<div class="ilswq-filters" aria-label="<?php esc_attr_e( 'Filter scan results', 'indexlane-safe-webp-queue' ); ?>">
-					<button type="button" class="button is-active" data-ilswq-filter="all"><?php esc_html_e( 'All', 'indexlane-safe-webp-queue' ); ?></button>
-					<button type="button" class="button" data-ilswq-filter="eligible"><?php esc_html_e( 'Eligible', 'indexlane-safe-webp-queue' ); ?></button>
-					<button type="button" class="button" data-ilswq-filter="converted"><?php esc_html_e( 'Converted', 'indexlane-safe-webp-queue' ); ?></button>
-					<button type="button" class="button" data-ilswq-filter="skipped"><?php esc_html_e( 'Skipped', 'indexlane-safe-webp-queue' ); ?></button>
-					<button type="button" class="button" data-ilswq-filter="failed"><?php esc_html_e( 'Failed', 'indexlane-safe-webp-queue' ); ?></button>
-					<button type="button" class="button" data-ilswq-filter="needs-review"><?php esc_html_e( 'Needs review', 'indexlane-safe-webp-queue' ); ?></button>
-					<button type="button" class="button" data-ilswq-filter="conflict"><?php esc_html_e( 'Conflicts', 'indexlane-safe-webp-queue' ); ?></button>
+					<button type="button" class="button is-active" data-ilswq-filter="all" aria-pressed="true"><?php esc_html_e( 'All', 'indexlane-safe-webp-queue' ); ?></button>
+					<button type="button" class="button" data-ilswq-filter="eligible" aria-pressed="false"><?php esc_html_e( 'Eligible', 'indexlane-safe-webp-queue' ); ?></button>
+					<button type="button" class="button" data-ilswq-filter="converted" aria-pressed="false"><?php esc_html_e( 'Converted', 'indexlane-safe-webp-queue' ); ?></button>
+					<button type="button" class="button" data-ilswq-filter="skipped" aria-pressed="false"><?php esc_html_e( 'Skipped', 'indexlane-safe-webp-queue' ); ?></button>
+					<button type="button" class="button" data-ilswq-filter="failed" aria-pressed="false"><?php esc_html_e( 'Failed', 'indexlane-safe-webp-queue' ); ?></button>
+					<button type="button" class="button" data-ilswq-filter="needs-review" aria-pressed="false"><?php esc_html_e( 'Needs review', 'indexlane-safe-webp-queue' ); ?></button>
+					<button type="button" class="button" data-ilswq-filter="conflict" aria-pressed="false"><?php esc_html_e( 'Conflicts', 'indexlane-safe-webp-queue' ); ?></button>
 				</div>
 
 				<div class="ilswq-table-wrap">
 					<table class="widefat striped ilswq-results">
 						<thead>
 							<tr>
-								<td class="manage-column check-column"><input type="checkbox" id="ilswq-check-all" aria-label="<?php esc_attr_e( 'Select all eligible images', 'indexlane-safe-webp-queue' ); ?>" disabled></td>
+								<td class="manage-column check-column"><input type="checkbox" id="ilswq-check-all" aria-label="<?php esc_attr_e( 'Select all visible eligible images', 'indexlane-safe-webp-queue' ); ?>" disabled></td>
 								<th><?php esc_html_e( 'Attachment', 'indexlane-safe-webp-queue' ); ?></th>
 								<th><?php esc_html_e( 'File', 'indexlane-safe-webp-queue' ); ?></th>
 								<th><?php esc_html_e( 'Type', 'indexlane-safe-webp-queue' ); ?></th>
