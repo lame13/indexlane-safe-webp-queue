@@ -81,7 +81,7 @@ class ILSWQ_Converter {
 	 * @return array<string, mixed>
 	 */
 	private function convert_scanned_sources( $attachment_id, $settings, $sources ) {
-		if ( empty( $sources ) ) {
+		if ( ILSWQ_Scanner::is_excluded( $attachment_id ) || empty( $sources ) ) {
 			return $this->scanner->scan_attachment( $attachment_id, $settings );
 		}
 
@@ -113,8 +113,11 @@ class ILSWQ_Converter {
 			}
 
 			if ( ! empty( $result['entry'] ) && is_array( $result['entry'] ) ) {
-				$name         = isset( $result['entry']['name'] ) ? sanitize_key( (string) $result['entry']['name'] ) : 'full';
+				$name     = isset( $result['entry']['name'] ) ? sanitize_key( (string) $result['entry']['name'] ) : 'full';
+				$previous = isset( $map[ $name ] ) && is_array( $map[ $name ] ) ? $map[ $name ] : array();
+
 				$map[ $name ] = $result['entry'];
+				ILSWQ_Totals::record( $previous, $map[ $name ] );
 				++$converted;
 			}
 		}
@@ -183,9 +186,9 @@ class ILSWQ_Converter {
 				continue;
 			}
 
-			$paths             = $this->generated_paths_for_cleanup( (int) $attachment_id );
+			$entries           = $this->entries_for_cleanup( (int) $attachment_id );
 			$attachment_failed = false;
-			foreach ( $paths as $path ) {
+			foreach ( $entries as $path => $entry ) {
 				if ( ! $this->is_safe_generated_path( $path ) ) {
 					++$failed;
 					$attachment_failed = true;
@@ -201,8 +204,9 @@ class ILSWQ_Converter {
 				if ( file_exists( $path ) ) {
 					++$failed;
 					$attachment_failed = true;
-				} elseif ( $existed ) {
-					++$deleted;
+				} else {
+					$deleted += $existed ? 1 : 0;
+					$this->forget_generated_entry( (int) $attachment_id, $path, $entry );
 				}
 			}
 
@@ -237,11 +241,11 @@ class ILSWQ_Converter {
 	 */
 	public function delete_generated_for_attachment( $attachment_id, $remember_failures = false ) {
 		$attachment_id = absint( $attachment_id );
-		$paths         = $this->generated_paths_for_cleanup( $attachment_id );
+		$entries       = $this->entries_for_cleanup( $attachment_id );
 		$deleted       = 0;
 		$failed        = 0;
 
-		foreach ( $paths as $path ) {
+		foreach ( $entries as $path => $entry ) {
 			if ( ! $this->is_safe_generated_path( $path ) ) {
 				++$failed;
 				continue;
@@ -256,10 +260,11 @@ class ILSWQ_Converter {
 			if ( file_exists( $path ) ) {
 				++$failed;
 				if ( $remember_failures ) {
-					$this->remember_orphan_path( $path );
+					$this->remember_orphan_path( $path, $entry );
 				}
-			} elseif ( $existed ) {
-				++$deleted;
+			} else {
+				$deleted += $existed ? 1 : 0;
+				$this->forget_generated_entry( $attachment_id, $path, $entry );
 			}
 		}
 
@@ -333,6 +338,7 @@ class ILSWQ_Converter {
 			}
 
 			unset( $map[ $name ] );
+			ILSWQ_Totals::forget( $entry );
 			++$removed;
 			$changed = true;
 		}
@@ -401,6 +407,10 @@ class ILSWQ_Converter {
 			} else {
 				if ( $existed ) {
 					++$deleted;
+				}
+				if ( isset( $record['source_size'], $record['webp_size'] ) ) {
+					$record['webp'] = $path;
+					ILSWQ_Totals::forget( $record );
 				}
 				unset( $records[ $key ] );
 			}
@@ -824,36 +834,44 @@ class ILSWQ_Converter {
 	}
 
 	/**
-	 * Return generated paths stored for cleanup.
+	 * Return generated entries stored for cleanup, keyed by normalized path.
 	 *
 	 * @param int $attachment_id Attachment ID.
-	 * @return array<int, string>
+	 * @return array<string, array<string, mixed>>
 	 */
-	private function generated_paths_for_cleanup( $attachment_id ) {
-		$paths = array();
-		$map   = ILSWQ_Scanner::get_webp_map( $attachment_id );
+	private function entries_for_cleanup( $attachment_id ) {
+		$entries = array();
 
-		foreach ( $map as $entry ) {
+		foreach ( ILSWQ_Scanner::get_webp_map( $attachment_id ) as $entry ) {
 			if ( is_array( $entry ) && ! empty( $entry['webp'] ) ) {
-				$paths[] = wp_normalize_path( (string) $entry['webp'] );
+				$entries[ wp_normalize_path( (string) $entry['webp'] ) ] = $entry;
 			}
 		}
 
 		$legacy_path = (string) get_post_meta( $attachment_id, ILSWQ_META_WEBP_PATH, true );
 		if ( '' !== $legacy_path ) {
-			$paths[] = wp_normalize_path( $legacy_path );
+			$legacy_path = wp_normalize_path( $legacy_path );
+
+			if ( ! isset( $entries[ $legacy_path ] ) ) {
+				$entries[ $legacy_path ] = array(
+					'webp'        => $legacy_path,
+					'webp_size'   => (int) get_post_meta( $attachment_id, ILSWQ_META_WEBP_SIZE, true ),
+					'source_size' => (int) get_post_meta( $attachment_id, ILSWQ_META_SOURCE_SIZE, true ),
+				);
+			}
 		}
 
-		return array_values( array_unique( array_filter( $paths ) ) );
+		return $entries;
 	}
 
 	/**
 	 * Remember a safe uploads-relative path after attachment deletion fails.
 	 *
 	 * @param string $path Generated WebP path.
+	 * @param array<string, mixed> $entry Stored amounts to retain for cleanup.
 	 * @return void
 	 */
-	private function remember_orphan_path( $path ) {
+	private function remember_orphan_path( $path, $entry ) {
 		$relative = ILSWQ_Scanner::path_to_relative( $path );
 		if ( '' === $relative || '.webp' !== substr( strtolower( $relative ), -5 ) ) {
 			return;
@@ -867,8 +885,29 @@ class ILSWQ_Converter {
 			'relative'     => $relative,
 			'attempts'     => 0,
 			'available_at' => time() + 60,
+			'source_size'  => isset( $entry['source_size'] ) ? (int) $entry['source_size'] : 0,
+			'webp_size'    => isset( $entry['webp_size'] ) ? (int) $entry['webp_size'] : 0,
 		);
 		update_option( ILSWQ_OPTION_ORPHAN_WEBPS, $records, false );
+	}
+
+	/**
+	 * Remove cleaned ownership so retries cannot count it twice.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @param string $path Deleted or already missing output.
+	 * @param array<string, mixed> $entry Stored entry.
+	 * @return void
+	 */
+	private function forget_generated_entry( $attachment_id, $path, $entry ) {
+		$map = ILSWQ_Scanner::get_webp_map( $attachment_id );
+		foreach ( $map as $name => $stored ) {
+			if ( isset( $stored['webp'] ) && wp_normalize_path( $stored['webp'] ) === $path ) {
+				unset( $map[ $name ] );
+			}
+		}
+		$this->save_generated_map( $attachment_id, $map );
+		ILSWQ_Totals::forget( $entry );
 	}
 
 	/**

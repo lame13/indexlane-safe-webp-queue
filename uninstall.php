@@ -19,4 +19,6 @@ delete_option( 'ilswq_queue_job' );
 delete_option( 'ilswq_auto_queue' );
 delete_option( 'ilswq_queue_lock' );
 delete_option( 'ilswq_orphan_webps' );
+delete_option( 'ilswq_totals' );
+delete_option( 'ilswq_totals_rebuild' );
 wp_clear_scheduled_hook( 'ilswq_process_queue' );

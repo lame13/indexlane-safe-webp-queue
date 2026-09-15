@@ -51,6 +51,25 @@ class ILSWQ_Queue {
 	}
 
 	/**
+	 * Start a job that covers every convertible Media Library attachment.
+	 *
+	 * The job stores a cursor instead of an ID list, so a library of any size
+	 * can be converted without growing the stored option.
+	 *
+	 * @param array<string, int> $settings Settings snapshot.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	public function start_library_job( $settings ) {
+		$total = ILSWQ_Scanner::count_library_attachments();
+
+		if ( $total <= 0 ) {
+			return new WP_Error( 'ilswq_queue_empty', __( 'No convertible images were found in the Media Library.', 'indexlane-safe-webp-queue' ) );
+		}
+
+		return $this->create_job( array(), $settings, 'library', $total );
+	}
+
+	/**
 	 * Pause the active manual job after the current batch.
 	 *
 	 * @return array<string, mixed>|WP_Error
@@ -109,7 +128,7 @@ class ILSWQ_Queue {
 	}
 
 	/**
-	 * Start a new job containing only the failures from the last job.
+	 * Retry failures, rescanning the library when its failure list overflowed.
 	 *
 	 * @return array<string, mixed>|WP_Error
 	 */
@@ -125,6 +144,10 @@ class ILSWQ_Queue {
 		}
 
 		$settings = isset( $job['settings'] ) && is_array( $job['settings'] ) ? $job['settings'] : ILSWQ_Settings::get();
+		if ( $this->job_is_library( $job ) && (int) $job['failed'] > count( $failed_ids ) ) {
+			// Existing valid outputs are reused during the bounded library scan.
+			return $this->start_library_job( $settings );
+		}
 
 		return $this->create_job( $failed_ids, $settings, 'retry' );
 	}
@@ -270,6 +293,9 @@ class ILSWQ_Queue {
 				'automatic_pending'   => $automatic_counts['pending'],
 				'automatic_failed'    => $automatic_counts['failed'],
 				'cleanup_pending'     => $cleanup_pending,
+				'is_library'          => false,
+				'scope_label'         => '',
+				'totals'              => ILSWQ_Totals::summary(),
 				'can_pause'           => false,
 				'can_resume'          => false,
 				'can_cancel'          => false,
@@ -320,6 +346,9 @@ class ILSWQ_Queue {
 			'automatic_pending'   => $automatic_counts['pending'],
 			'automatic_failed'    => $automatic_counts['failed'],
 			'cleanup_pending'     => $cleanup_pending,
+			'is_library'          => $this->job_is_library( $job ),
+			'scope_label'         => $this->job_is_library( $job ) ? __( 'Whole Media Library', 'indexlane-safe-webp-queue' ) : __( 'Selected images', 'indexlane-safe-webp-queue' ),
+			'totals'              => ILSWQ_Totals::summary(),
 			'can_pause'           => in_array( $state, array( 'queued', 'running' ), true ),
 			'can_resume'          => 'paused' === $state,
 			'can_cancel'          => in_array( $state, array( 'queued', 'running', 'paused' ), true ),
@@ -385,9 +414,10 @@ class ILSWQ_Queue {
 	 * @param array<int, int>    $ids Attachment IDs.
 	 * @param array<string, int> $settings Settings snapshot.
 	 * @param string             $origin Job origin.
+	 * @param int|null           $library_total Attachment count for a whole-library job.
 	 * @return array<string, mixed>|WP_Error
 	 */
-	private function create_job( $ids, $settings, $origin ) {
+	private function create_job( $ids, $settings, $origin, $library_total = null ) {
 		$current = $this->get_job();
 		if ( $this->job_is_active( $current ) ) {
 			return new WP_Error( 'ilswq_queue_active', __( 'Finish or cancel the current conversion job before starting another one.', 'indexlane-safe-webp-queue' ) );
@@ -397,22 +427,27 @@ class ILSWQ_Queue {
 			return new WP_Error( 'ilswq_queue_busy', __( 'The previous conversion batch is still finishing. Try again in a moment.', 'indexlane-safe-webp-queue' ) );
 		}
 
+		$is_library = null !== $library_total;
 		$normalized = array();
 		foreach ( is_array( $ids ) ? $ids : array() as $id ) {
-			if ( is_scalar( $id ) ) {
-				$attachment_id = absint( $id );
-				if ( $attachment_id > 0 ) {
-					$normalized[ $attachment_id ] = $attachment_id;
-				}
+			if ( ! is_scalar( $id ) ) {
+				continue;
 			}
+
+			$attachment_id = absint( $id );
+			if ( $attachment_id <= 0 || ILSWQ_Scanner::is_excluded( $attachment_id ) ) {
+				continue;
+			}
+
+			$normalized[ $attachment_id ] = $attachment_id;
 		}
 
 		$normalized = array_values( $normalized );
-		if ( empty( $normalized ) ) {
+		if ( ! $is_library && empty( $normalized ) ) {
 			return new WP_Error( 'ilswq_queue_empty', __( 'Select at least one eligible attachment before starting a conversion job.', 'indexlane-safe-webp-queue' ) );
 		}
 
-		if ( count( $normalized ) > self::MAX_ATTACHMENTS ) {
+		if ( ! $is_library && count( $normalized ) > self::MAX_ATTACHMENTS ) {
 			return new WP_Error(
 				'ilswq_queue_too_large',
 				sprintf(
@@ -423,15 +458,22 @@ class ILSWQ_Queue {
 			);
 		}
 
+		$total = $is_library ? max( 0, (int) $library_total ) : count( $normalized );
+		if ( $total <= 0 ) {
+			return new WP_Error( 'ilswq_queue_empty', __( 'No convertible images were found in the Media Library.', 'indexlane-safe-webp-queue' ) );
+		}
+
 		$now = time();
 		$job = array(
 			'id'              => wp_generate_uuid4(),
 			'origin'          => sanitize_key( $origin ),
+			'library'         => $is_library ? 1 : 0,
+			'library_max_id'  => $is_library ? ILSWQ_Scanner::last_library_id() : 0,
 			'state'           => 'queued',
 			'attachment_ids'  => $normalized,
 			'cursor'          => 0,
 			'in_progress'     => array(),
-			'total'           => count( $normalized ),
+			'total'           => $total,
 			'processed'       => 0,
 			'converted'       => 0,
 			'skipped'         => 0,
@@ -448,7 +490,14 @@ class ILSWQ_Queue {
 		);
 
 		$this->save_job( $job );
-		$this->remove_automatic_items( $normalized );
+
+		if ( $is_library ) {
+			// The whole-library job supersedes queued automatic upload work.
+			$this->save_auto_queue( array() );
+		} else {
+			$this->remove_automatic_items( $normalized );
+		}
+
 		$this->ensure_scheduled();
 
 		return $this->get_public_status();
@@ -461,18 +510,20 @@ class ILSWQ_Queue {
 	 * @return array<int, array<string, mixed>>
 	 */
 	private function process_manual_job( $job ) {
-		$ids      = isset( $job['attachment_ids'] ) && is_array( $job['attachment_ids'] ) ? $job['attachment_ids'] : array();
 		$settings = isset( $job['settings'] ) && is_array( $job['settings'] ) ? ILSWQ_Settings::sanitize( $job['settings'] ) : ILSWQ_Settings::get();
 		$batch    = isset( $job['in_progress'] ) && is_array( $job['in_progress'] ) ? array_values( array_filter( array_map( 'absint', $job['in_progress'] ) ) ) : array();
 
 		if ( empty( $batch ) ) {
-			$cursor           = isset( $job['cursor'] ) ? max( 0, (int) $job['cursor'] ) : 0;
-			$batch            = array_slice( $ids, $cursor, (int) $settings['batch_size'] );
-			$job['cursor']    = $cursor + count( $batch );
+			$batch              = $this->next_batch( $job );
 			$job['in_progress'] = $batch;
 		}
 
 		if ( empty( $batch ) ) {
+			if ( $this->job_is_library( $job ) ) {
+				// Trim the stored total when images disappear mid-job.
+				$job['total'] = (int) $job['processed'];
+			}
+
 			$job['state']         = 'completed';
 			$job['completed_at']  = time();
 			$job['last_activity'] = time();
@@ -518,7 +569,7 @@ class ILSWQ_Queue {
 			// Cancellation stops before the next batch; completed output remains in place.
 		} elseif ( 'paused' === $this->job_state( $latest ) ) {
 			// A pause requested during processing takes effect after this batch.
-		} elseif ( (int) $latest['cursor'] >= (int) $latest['total'] ) {
+		} elseif ( ! $this->job_is_library( $latest ) && (int) $latest['cursor'] >= (int) $latest['total'] ) {
 			$latest['state']        = 'completed';
 			$latest['completed_at'] = time();
 		} else {
@@ -528,6 +579,29 @@ class ILSWQ_Queue {
 		$this->save_job( $latest );
 
 		return $rows;
+	}
+
+	/**
+	 * Return the next batch of attachment IDs for a job.
+	 *
+	 * @param array<string, mixed> $job Job, by reference.
+	 * @return array<int, int>
+	 */
+	private function next_batch( &$job ) {
+		$settings = isset( $job['settings'] ) && is_array( $job['settings'] ) ? ILSWQ_Settings::sanitize( $job['settings'] ) : ILSWQ_Settings::get();
+		$size     = max( 1, (int) $settings['batch_size'] );
+		$cursor   = isset( $job['cursor'] ) ? max( 0, (int) $job['cursor'] ) : 0;
+
+		if ( $this->job_is_library( $job ) ) {
+			$batch = ILSWQ_Scanner::get_library_page_ids( $cursor, $size, (int) $job['library_max_id'] );
+		} else {
+			$ids   = isset( $job['attachment_ids'] ) && is_array( $job['attachment_ids'] ) ? array_values( array_map( 'absint', $job['attachment_ids'] ) ) : array();
+			$batch = array_values( array_filter( array_slice( $ids, $cursor, $size ) ) );
+		}
+
+		$job['cursor'] = $this->job_is_library( $job ) ? ( empty( $batch ) ? $cursor : max( $batch ) ) : $cursor + count( $batch );
+
+		return $batch;
 	}
 
 	/**
@@ -548,7 +622,7 @@ class ILSWQ_Queue {
 			return;
 		}
 
-		if ( in_array( $status, array( 'skipped', 'already-exists' ), true ) ) {
+		if ( in_array( $status, array( 'skipped', 'already-exists', 'excluded' ), true ) ) {
 			++$job['skipped'];
 			delete_post_meta( $attachment_id, ILSWQ_META_LAST_ERROR );
 			return;
@@ -578,7 +652,9 @@ class ILSWQ_Queue {
 	 */
 	private function record_manual_failure( &$job, $attachment_id, $message ) {
 		++$job['failed'];
-		$job['failure_ids'][] = absint( $attachment_id );
+		if ( count( $job['failure_ids'] ) < self::MAX_ATTACHMENTS ) {
+			$job['failure_ids'][] = absint( $attachment_id );
+		}
 		$job['failure_ids']   = array_values( array_unique( array_filter( array_map( 'absint', $job['failure_ids'] ) ) ) );
 		$this->append_error( $job, $attachment_id, $message );
 		update_post_meta( $attachment_id, ILSWQ_META_LAST_ERROR, sanitize_text_field( $message ) );
@@ -648,7 +724,7 @@ class ILSWQ_Queue {
 				// The generic message avoids exposing filesystem details in stored admin output.
 			}
 
-			if ( in_array( $status, array( 'converted', 'skipped', 'already-exists' ), true ) ) {
+			if ( in_array( $status, array( 'converted', 'skipped', 'already-exists', 'excluded' ), true ) ) {
 				unset( $queue[ $key ] );
 				delete_post_meta( $attachment_id, ILSWQ_META_LAST_ERROR );
 			} elseif ( 'conflict' === $status ) {
@@ -799,6 +875,16 @@ class ILSWQ_Queue {
 	 */
 	private function job_is_active( $job ) {
 		return ! empty( $job ) && in_array( $this->job_state( $job ), array( 'queued', 'running', 'paused' ), true );
+	}
+
+	/**
+	 * Return true when a job covers the whole Media Library.
+	 *
+	 * @param array<string, mixed> $job Job.
+	 * @return bool
+	 */
+	private function job_is_library( $job ) {
+		return ! empty( $job['library'] );
 	}
 
 	/**

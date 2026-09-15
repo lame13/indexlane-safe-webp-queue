@@ -8,7 +8,7 @@ let source = fs.readFileSync(sourcePath, 'utf8');
 
 source = source.replace(
 	'\n\trenderQueueStatus(queueStatus);\n\tscheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);\n})(jQuery);',
-	'\n\tglobalThis.ILSWQ_TestHooks = { csvEscape: csvEscape, formatString: formatString, cleanupQueue: cleanupQueue, renderQueueStatus: renderQueueStatus, matchesReportRow: matchesReportRow, exportCsv: exportCsv, getSelectedEligibleIds: getSelectedEligibleIds, setReport: function (nextRows, filter, query) { rows = nextRows; rowMap = {}; rows.forEach(function (row, index) { rowMap[row.id] = index; }); activeFilter = filter; searchQuery = query; } };\n\trenderQueueStatus(queueStatus);\n\tscheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);\n})(jQuery);'
+	'\n\tglobalThis.ILSWQ_TestHooks = { csvEscape: csvEscape, formatString: formatString, cleanupQueue: cleanupQueue, renderQueueStatus: renderQueueStatus, renderTotals: renderTotals, matchesReportRow: matchesReportRow, exportCsv: exportCsv, getSelectedEligibleIds: getSelectedEligibleIds, setReport: function (nextRows, filter, query) { rows = nextRows; rowMap = {}; rows.forEach(function (row, index) { rowMap[row.id] = index; }); activeFilter = filter; searchQuery = query; } };\n\trenderQueueStatus(queueStatus);\n\tscheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);\n})(jQuery);'
 );
 
 if (!source.includes('ILSWQ_TestHooks')) {
@@ -17,6 +17,8 @@ if (!source.includes('ILSWQ_TestHooks')) {
 
 const requests = [];
 const downloads = [];
+const textValues = {};
+const hiddenValues = {};
 let csvBlob;
 let checkboxes = [];
 const cleanupResponses = [
@@ -24,7 +26,7 @@ const cleanupResponses = [
 	{ success: true, data: { deleted: 0, failed: 0, hasMore: false } }
 ];
 
-function collection(items = []) {
+function collection(items = [], selector = '') {
 	return {
 		length: items.length,
 		addClass: function () { return this; },
@@ -39,14 +41,27 @@ function collection(items = []) {
 		get: function () { return items; },
 		map: function (callback) { return collection(items.map(function (item) { return callback.call(item); })); },
 		on: function () { return this; },
-		prop: function () { return this; },
+		prop: function (name, value) {
+			if (selector && name === 'hidden') {
+				hiddenValues[selector] = value;
+			}
+			return this;
+		},
 		removeClass: function () { return this; },
-		text: function () { return this; }
+		text: function (value) {
+			if (selector) {
+				if (value === undefined) {
+					return textValues[selector] || '';
+				}
+				textValues[selector] = value;
+			}
+			return this;
+		}
 	};
 }
 
 function jQuery(selector) {
-	return collection(selector === '.ilswq-row-check' ? checkboxes : []);
+	return collection(selector === '.ilswq-row-check' ? checkboxes : [], selector);
 }
 
 jQuery.each = function (items, callback) {
@@ -84,12 +99,16 @@ const context = {
 			automaticPendingMany: '%d new uploads waiting',
 			automaticPendingOne: '%d new upload waiting',
 			cleanupRunning: 'Cleaning',
+			libraryConfirm: 'Convert every convertible image in the Media Library?',
+			libraryStarted: 'Whole-library conversion job started.',
 			noRows: 'Run a scan to build a report.',
 			noMatches: 'No images match this search and filter.',
 			queueComplete: 'Conversion job complete.',
 			queueCompleteWithFailures: '%d conversions failed',
 			queueConflictComplete: 'Conversion job completed with conflicts',
-			queueLastActivity: 'Last activity: %s'
+			queueLastActivity: 'Last activity: %s',
+			totalsRebuilding: 'Recalculating stored savings...',
+			totalsRebuilt: 'Stored savings were recalculated from the generated WebP files.'
 		},
 		csvHeaders: []
 	},
@@ -134,6 +153,11 @@ function matchingIds(filter, query) {
 	return reportRows.filter(hooks.matchesReportRow).map(function (row) { return row.id; }).join(',');
 }
 
+function matchingIdsFor(rowsToMatch, filter, query) {
+	hooks.setReport(rowsToMatch, filter, query);
+	return rowsToMatch.filter(hooks.matchesReportRow).map(function (row) { return row.id; }).join(',');
+}
+
 assertEqual(matchingIds('all', 'summer'), '12,25,48', 'Title and filename search did not ignore case');
 assertEqual(matchingIds('all', 'hero.jpg'), '12', 'Filename substring did not match');
 assertEqual(matchingIds('all', '25'), '25', 'Attachment ID search did not match');
@@ -169,6 +193,79 @@ csvBlob.text().then(function (csv) {
 	console.error(error);
 	process.exitCode = 1;
 });
+
+const excludedRows = [
+	{ id: 91, title: 'Excluded hero', file: 'excluded-hero.jpg', status_key: 'excluded', eligible: false },
+	{ id: 92, title: 'Hero', file: 'hero.jpg', status_key: 'eligible', eligible: true },
+	{ id: 93, title: 'Hero copy', file: 'hero-copy.jpg', status_key: 'converted', eligible: false }
+];
+
+assertEqual(matchingIdsFor(excludedRows, 'excluded', ''), '91', 'Excluded filter did not isolate excluded images');
+assertEqual(matchingIdsFor(excludedRows, 'excluded', 'hero'), '91', 'Search and the excluded filter were not combined');
+assertEqual(matchingIdsFor(excludedRows, 'eligible', 'hero'), '92', 'Excluded images leaked into the eligible filter');
+assertEqual(matchingIdsFor(excludedRows, 'all', 'hero'), '91,92,93', 'Excluded images disappeared from the full report');
+
+hooks.renderTotals({
+	files: 4,
+	source_bytes: 2400000,
+	webp_bytes: 620000,
+	saved_bytes: 1780000,
+	saved_percent: 74.2,
+	updated_at: 1789000000,
+	is_empty: false,
+	labels: {
+		files: '4',
+		source: '2.3 MB',
+		webp: '605 KB',
+		saved: '1.7 MB',
+		percent: '74.2%',
+		updated: 'September 15, 2026 10:00'
+	}
+});
+
+assertEqual(textValues['#ilswq-total-files'], '4', 'Savings panel did not render the generated file count');
+assertEqual(textValues['#ilswq-total-saved'], '1.7 MB', 'Savings panel did not render the saved size');
+assertEqual(textValues['#ilswq-total-percent'], '74.2%', 'Savings panel did not render the saved percentage');
+assertEqual(hiddenValues['#ilswq-totals-updated'], false, 'Savings panel hid the last updated time');
+
+hooks.renderTotals({
+	files: 0,
+	source_bytes: 0,
+	webp_bytes: 0,
+	saved_bytes: 0,
+	saved_percent: 0,
+	updated_at: 0,
+	is_empty: true,
+	labels: { files: '0', source: '0 B', webp: '0 B', saved: '0 B', percent: '0%', updated: '' }
+});
+
+assertEqual(textValues['#ilswq-total-percent'], '', 'Savings panel showed a percentage without stored totals');
+assertEqual(hiddenValues['#ilswq-totals-updated'], true, 'Savings panel showed an update time without stored totals');
+hooks.renderTotals(undefined);
+
+hooks.renderQueueStatus(Object.assign({}, context.ILSWQ_Admin.queue, {
+	state: 'running',
+	state_label: 'Running',
+	summary: '3 of 400 attachments processed.',
+	is_library: true,
+	scope_label: 'Whole Media Library',
+	totals: {
+		files: 2,
+		is_empty: false,
+		labels: {
+			files: '2',
+			source: '900 KB',
+			webp: '240 KB',
+			saved: '660 KB',
+			percent: '73.3%',
+			updated: 'Yesterday'
+		}
+	}
+}));
+
+assertEqual(hiddenValues['#ilswq-queue-scope'], false, 'Queue scope stayed hidden for a whole-library job');
+assertEqual(textValues['#ilswq-queue-scope-value'], 'Whole Media Library', 'Queue scope was not rendered');
+assertEqual(textValues['#ilswq-total-files'], '2', 'Queue status did not refresh the savings panel');
 
 context.ILSWQ_TestHooks.cleanupQueue(0, 0, true).then(function () {
 	assertEqual(requests.length, 2, 'Cleanup did not request both pages');

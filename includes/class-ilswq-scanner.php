@@ -16,6 +16,164 @@ class ILSWQ_Scanner {
 	const PER_PAGE = 50;
 
 	/**
+	 * Return the source MIME types this plugin can convert.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function convertible_mime_types() {
+		return array( 'image/jpeg', 'image/jpg', 'image/pjpeg', 'image/png', 'image/x-png' );
+	}
+
+	/**
+	 * Return the MIME types listed in the Media Library report.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function report_mime_types() {
+		return array_merge(
+			self::convertible_mime_types(),
+			array( 'image/webp', 'image/gif', 'image/svg+xml' )
+		);
+	}
+
+	/**
+	 * Return query arguments for one report page.
+	 *
+	 * @param int $page Page number.
+	 * @param int $per_page Attachments per page.
+	 * @return array<string, mixed>
+	 */
+	public static function report_query_args( $page, $per_page ) {
+		return array(
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'post_mime_type' => self::report_mime_types(),
+			'fields'         => 'ids',
+			'orderby'        => 'ID',
+			'order'          => 'ASC',
+			'paged'          => max( 1, absint( $page ) ),
+			'posts_per_page' => max( 1, absint( $per_page ) ),
+		);
+	}
+
+	/**
+	 * Return query arguments for convertible attachments, skipping opt-outs.
+	 *
+	 * Pages use the last attachment ID so removals cannot shift later work.
+	 *
+	 * @param int $after_id Last processed attachment ID.
+	 * @param int $limit Maximum attachments.
+	 * @return array<string, mixed>
+	 */
+	public static function library_query_args( $after_id, $limit ) {
+		return array(
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'post_mime_type' => self::convertible_mime_types(),
+			'fields'         => 'ids',
+			'orderby'        => 'ID',
+			'order'          => 'ASC',
+			'posts_per_page' => max( 1, absint( $limit ) ),
+			'ilswq_after_id' => max( 0, absint( $after_id ) ),
+			'meta_query'     => array(
+				array(
+					'key'     => ILSWQ_META_EXCLUDE,
+					'compare' => 'NOT EXISTS',
+				),
+			),
+		);
+	}
+
+	/**
+	 * Return one page of convertible attachment IDs.
+	 *
+	 * @param int $after_id Last processed attachment ID.
+	 * @param int $limit Maximum attachments.
+	 * @param int $max_id Last attachment included in this job.
+	 * @return array<int, int>
+	 */
+	public static function get_library_page_ids( $after_id, $limit, $max_id = PHP_INT_MAX ) {
+		$args = self::library_query_args( $after_id, $limit );
+		$args['no_found_rows'] = true;
+		$filter = static function ( $where, $query ) use ( $after_id, $max_id ) {
+			global $wpdb;
+			if ( null !== $query->get( 'ilswq_after_id', null ) ) {
+				$where .= $wpdb->prepare( " AND {$wpdb->posts}.ID > %d AND {$wpdb->posts}.ID <= %d", $after_id, $max_id );
+			}
+			return $where;
+		};
+		add_filter( 'posts_where', $filter, 10, 2 );
+		try {
+			$query = new WP_Query( $args );
+		} finally {
+			remove_filter( 'posts_where', $filter, 10 );
+		}
+
+		return array_values( array_filter( array_map( 'absint', $query->posts ) ) );
+	}
+
+	/**
+	 * Return the last convertible attachment ID when a library job starts.
+	 *
+	 * @return int
+	 */
+	public static function last_library_id() {
+		$args = self::library_query_args( 0, 1 );
+		$args['order'] = 'DESC';
+		$args['no_found_rows'] = true;
+		$query = new WP_Query( $args );
+
+		return empty( $query->posts ) ? 0 : (int) $query->posts[0];
+	}
+
+	/**
+	 * Count convertible attachments that are not excluded.
+	 *
+	 * @return int
+	 */
+	public static function count_library_attachments() {
+		$args   = self::library_query_args( 0, 1 );
+		$query  = new WP_Query( $args );
+
+		return max( 0, (int) $query->found_posts );
+	}
+
+	/**
+	 * Return whether an attachment is excluded from WebP conversion.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return bool
+	 */
+	public static function is_excluded( $attachment_id ) {
+		$attachment_id = absint( $attachment_id );
+		if ( $attachment_id <= 0 ) {
+			return false;
+		}
+
+		return '' !== (string) get_post_meta( $attachment_id, ILSWQ_META_EXCLUDE, true );
+	}
+
+	/**
+	 * Exclude an attachment from WebP conversion, or include it again.
+	 *
+	 * @param int  $attachment_id Attachment ID.
+	 * @param bool $excluded Whether the attachment should be excluded.
+	 * @return bool Whether the stored value changed.
+	 */
+	public static function set_excluded( $attachment_id, $excluded ) {
+		$attachment_id = absint( $attachment_id );
+		if ( $attachment_id <= 0 ) {
+			return false;
+		}
+
+		if ( $excluded ) {
+			return false !== update_post_meta( $attachment_id, ILSWQ_META_EXCLUDE, '1' );
+		}
+
+		return (bool) delete_post_meta( $attachment_id, ILSWQ_META_EXCLUDE );
+	}
+
+	/**
 	 * Scan one page of image attachments.
 	 *
 	 * @param int                $page Page number.
@@ -27,27 +185,7 @@ class ILSWQ_Scanner {
 		$page     = max( 1, absint( $page ) );
 		$per_page = max( 1, min( 100, absint( $per_page ) ) );
 
-		$query = new WP_Query(
-			array(
-				'post_type'      => 'attachment',
-				'post_status'    => 'inherit',
-				'post_mime_type' => array(
-					'image/jpeg',
-					'image/jpg',
-					'image/pjpeg',
-					'image/png',
-					'image/x-png',
-					'image/webp',
-					'image/gif',
-					'image/svg+xml',
-				),
-				'fields'         => 'ids',
-				'orderby'        => 'ID',
-				'order'          => 'ASC',
-				'paged'          => $page,
-				'posts_per_page' => $per_page,
-			)
-		);
+		$query = new WP_Query( self::report_query_args( $page, $per_page ) );
 
 		$rows = array();
 		foreach ( $query->posts as $attachment_id ) {
@@ -72,7 +210,12 @@ class ILSWQ_Scanner {
 	 * @return array<string, mixed>
 	 */
 	public function scan_attachment( $attachment_id, $settings ) {
-		$row     = $this->base_row( $attachment_id );
+		$row = $this->base_row( $attachment_id );
+
+		if ( self::is_excluded( $attachment_id ) ) {
+			return $this->with_status( $row, 'excluded', __( 'Excluded from WebP conversion', 'indexlane-safe-webp-queue' ), false );
+		}
+
 		$sources = $this->scan_sources( $attachment_id, $settings );
 
 		if ( empty( $sources ) ) {
@@ -553,6 +696,8 @@ class ILSWQ_Scanner {
 				return __( 'Failed', 'indexlane-safe-webp-queue' );
 			case 'conflict':
 				return __( 'Conflict', 'indexlane-safe-webp-queue' );
+			case 'excluded':
+				return __( 'Excluded', 'indexlane-safe-webp-queue' );
 			case 'skipped':
 			default:
 				return __( 'Skipped', 'indexlane-safe-webp-queue' );

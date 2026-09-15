@@ -138,6 +138,43 @@
 	color: #8a2424;
 }
 
+.ilswq-totals-panel {
+	margin: 18px 0;
+}
+
+.ilswq-totals {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	gap: 12px;
+	margin-top: 14px;
+}
+
+.ilswq-total {
+	display: grid;
+	gap: 2px;
+	padding: 12px;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	background: #f6f7f7;
+}
+
+.ilswq-total strong {
+	font-size: 18px;
+	line-height: 1.3;
+}
+
+.ilswq-total-label {
+	color: #646970;
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+}
+
+#ilswq-totals-updated {
+	margin: 12px 0 0;
+}
+
 .ilswq-toolbar {
 	display: flex;
 	flex-wrap: wrap;
@@ -340,6 +377,11 @@
 }
 
 .ilswq-status.is-cancelled {
+	background: #f0f0f1;
+	color: #50575e;
+}
+
+.ilswq-status.is-excluded {
 	background: #f0f0f1;
 	color: #50575e;
 }

@@ -49,6 +49,13 @@ class ILSWQ_Plugin {
 	private $queue;
 
 	/**
+	 * Media Library integration.
+	 *
+	 * @var ILSWQ_Media
+	 */
+	private $media;
+
+	/**
 	 * Return singleton instance.
 	 *
 	 * @return ILSWQ_Plugin
@@ -68,6 +75,8 @@ class ILSWQ_Plugin {
 		$this->scanner   = new ILSWQ_Scanner();
 		$this->converter = new ILSWQ_Converter( $this->scanner );
 		$this->queue     = new ILSWQ_Queue( $this->converter );
+		$this->media     = new ILSWQ_Media( $this->queue );
+		$this->media->register();
 
 		add_action( 'admin_menu', array( $this, 'add_admin_page' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
@@ -82,6 +91,8 @@ class ILSWQ_Plugin {
 		add_action( 'wp_ajax_ilswq_queue_status', array( $this, 'ajax_queue_status' ) );
 		add_action( 'wp_ajax_ilswq_queue_process', array( $this, 'ajax_queue_process' ) );
 		add_action( 'wp_ajax_ilswq_queue_command', array( $this, 'ajax_queue_command' ) );
+		add_action( 'wp_ajax_ilswq_library_start', array( $this, 'ajax_library_start' ) );
+		add_action( 'wp_ajax_ilswq_totals_rebuild', array( $this, 'ajax_totals_rebuild' ) );
 		add_action( ILSWQ_Queue::CRON_HOOK, array( $this->queue, 'process_scheduled' ) );
 
 		add_filter( 'wp_get_attachment_image_src', array( 'ILSWQ_Serving', 'filter_attachment_image_src' ), 10, 4 );
@@ -143,6 +154,10 @@ class ILSWQ_Plugin {
 					'scanning'                  => __( 'Scanning Media Library...', 'indexlane-safe-webp-queue' ),
 					'scanComplete'              => __( 'Scan complete.', 'indexlane-safe-webp-queue' ),
 					'convertStarted'            => __( 'Conversion job started. It can safely resume after you leave this page.', 'indexlane-safe-webp-queue' ),
+					'libraryConfirm'            => __( 'Convert every convertible image in the Media Library? The job runs in the background and can be paused or cancelled. Excluded images are skipped.', 'indexlane-safe-webp-queue' ),
+					'libraryStarted'            => __( 'Whole-library conversion job started. Progress is saved if you leave this page.', 'indexlane-safe-webp-queue' ),
+					'totalsRebuilding'          => __( 'Recalculating stored savings...', 'indexlane-safe-webp-queue' ),
+					'totalsRebuilt'             => __( 'Stored savings were recalculated from the generated WebP files.', 'indexlane-safe-webp-queue' ),
 					'queueComplete'             => __( 'Conversion job complete.', 'indexlane-safe-webp-queue' ),
 					/* translators: %d: failed attachment count. */
 					'queueCompleteWithFailures' => __( 'Conversion job finished with %d failed attachments. Review the error and use Retry Failed.', 'indexlane-safe-webp-queue' ),
@@ -211,6 +226,7 @@ class ILSWQ_Plugin {
 		$settings     = ILSWQ_Settings::get();
 		$checks       = ILSWQ_Capabilities::get_checks();
 		$queue_status = $this->queue->get_public_status();
+		$totals       = ILSWQ_Totals::summary();
 		?>
 		<div class="wrap ilswq-wrap">
 			<h1><?php esc_html_e( 'IndexLane Safe WebP Queue', 'indexlane-safe-webp-queue' ); ?></h1>
@@ -273,6 +289,41 @@ class ILSWQ_Plugin {
 				</section>
 			</div>
 
+			<section class="ilswq-panel ilswq-totals-panel" aria-labelledby="ilswq-totals-title">
+				<div class="ilswq-queue-heading">
+					<div>
+						<h2 id="ilswq-totals-title"><?php esc_html_e( 'Savings So Far', 'indexlane-safe-webp-queue' ); ?></h2>
+						<p><?php esc_html_e( 'Stored totals for the WebP files this plugin owns. They update as conversions finish and drop again when generated files are deleted.', 'indexlane-safe-webp-queue' ); ?></p>
+					</div>
+					<button type="button" class="button" id="ilswq-totals-rebuild" <?php disabled( ! empty( $queue_status['has_runnable_work'] ) ); ?>><?php esc_html_e( 'Recalculate', 'indexlane-safe-webp-queue' ); ?></button>
+				</div>
+
+				<div class="ilswq-totals">
+					<div class="ilswq-total">
+						<span class="ilswq-total-label"><?php esc_html_e( 'Generated WebP files', 'indexlane-safe-webp-queue' ); ?></span>
+						<strong id="ilswq-total-files"><?php echo esc_html( (string) $totals['labels']['files'] ); ?></strong>
+					</div>
+					<div class="ilswq-total">
+						<span class="ilswq-total-label"><?php esc_html_e( 'Originals covered', 'indexlane-safe-webp-queue' ); ?></span>
+						<strong id="ilswq-total-source"><?php echo esc_html( (string) $totals['labels']['source'] ); ?></strong>
+					</div>
+					<div class="ilswq-total">
+						<span class="ilswq-total-label"><?php esc_html_e( 'WebP size', 'indexlane-safe-webp-queue' ); ?></span>
+						<strong id="ilswq-total-webp"><?php echo esc_html( (string) $totals['labels']['webp'] ); ?></strong>
+					</div>
+					<div class="ilswq-total">
+						<span class="ilswq-total-label"><?php esc_html_e( 'Saved', 'indexlane-safe-webp-queue' ); ?></span>
+						<strong id="ilswq-total-saved"><?php echo esc_html( (string) $totals['labels']['saved'] ); ?></strong>
+						<span class="ilswq-muted" id="ilswq-total-percent"><?php echo esc_html( empty( $totals['is_empty'] ) ? (string) $totals['labels']['percent'] : '' ); ?></span>
+					</div>
+				</div>
+
+				<p id="ilswq-totals-updated" class="ilswq-muted"<?php echo empty( $totals['labels']['updated'] ) ? ' hidden' : ''; ?>>
+					<span class="ilswq-total-label"><?php esc_html_e( 'Last updated', 'indexlane-safe-webp-queue' ); ?></span>
+					<span id="ilswq-totals-updated-value"><?php echo esc_html( (string) $totals['labels']['updated'] ); ?></span>
+				</p>
+			</section>
+
 			<section class="ilswq-panel ilswq-queue-panel" aria-labelledby="ilswq-queue-title">
 				<div class="ilswq-queue-heading">
 					<div>
@@ -288,6 +339,10 @@ class ILSWQ_Plugin {
 
 				<p id="ilswq-queue-summary" class="ilswq-queue-summary" aria-live="polite"><?php echo esc_html( $queue_status['summary'] ); ?></p>
 				<p id="ilswq-queue-settings" class="ilswq-muted"<?php echo empty( $queue_status['settings_summary'] ) ? ' hidden' : ''; ?>><?php echo esc_html( $queue_status['settings_summary'] ); ?></p>
+				<p id="ilswq-queue-scope" class="ilswq-muted"<?php echo empty( $queue_status['scope_label'] ) ? ' hidden' : ''; ?>>
+					<span class="ilswq-total-label"><?php esc_html_e( 'Scope', 'indexlane-safe-webp-queue' ); ?></span>
+					<span id="ilswq-queue-scope-value"><?php echo esc_html( (string) $queue_status['scope_label'] ); ?></span>
+				</p>
 				<p id="ilswq-queue-activity" class="ilswq-muted"<?php echo empty( $queue_status['last_activity_label'] ) ? ' hidden' : ''; ?>>
 					<?php
 					if ( ! empty( $queue_status['last_activity_label'] ) ) {
@@ -346,6 +401,7 @@ class ILSWQ_Plugin {
 						<button type="button" class="button" id="ilswq-pause" disabled><?php esc_html_e( 'Pause Scan', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-stop" disabled><?php esc_html_e( 'Stop Scan', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-convert" disabled><?php esc_html_e( 'Convert Selected', 'indexlane-safe-webp-queue' ); ?></button>
+						<button type="button" class="button" id="ilswq-library" disabled><?php esc_html_e( 'Convert Entire Library', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-validate-webp" disabled><?php esc_html_e( 'Validate WebP', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-export" disabled><?php esc_html_e( 'Export CSV', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button ilswq-danger" id="ilswq-cleanup"><?php esc_html_e( 'Delete Generated WebPs', 'indexlane-safe-webp-queue' ); ?></button>
@@ -358,6 +414,7 @@ class ILSWQ_Plugin {
 						<span><strong id="ilswq-count-failed">0</strong> <?php esc_html_e( 'failed', 'indexlane-safe-webp-queue' ); ?></span>
 						<span><strong id="ilswq-count-needs-review">0</strong> <?php esc_html_e( 'needs review', 'indexlane-safe-webp-queue' ); ?></span>
 						<span><strong id="ilswq-count-conflict">0</strong> <?php esc_html_e( 'conflicts', 'indexlane-safe-webp-queue' ); ?></span>
+						<span><strong id="ilswq-count-excluded">0</strong> <?php esc_html_e( 'excluded', 'indexlane-safe-webp-queue' ); ?></span>
 					</div>
 				</div>
 
@@ -386,6 +443,7 @@ class ILSWQ_Plugin {
 					<button type="button" class="button" data-ilswq-filter="failed" aria-pressed="false"><?php esc_html_e( 'Failed', 'indexlane-safe-webp-queue' ); ?></button>
 					<button type="button" class="button" data-ilswq-filter="needs-review" aria-pressed="false"><?php esc_html_e( 'Needs review', 'indexlane-safe-webp-queue' ); ?></button>
 					<button type="button" class="button" data-ilswq-filter="conflict" aria-pressed="false"><?php esc_html_e( 'Conflicts', 'indexlane-safe-webp-queue' ); ?></button>
+					<button type="button" class="button" data-ilswq-filter="excluded" aria-pressed="false"><?php esc_html_e( 'Excluded', 'indexlane-safe-webp-queue' ); ?></button>
 				</div>
 
 				<div class="ilswq-table-wrap">
@@ -502,6 +560,37 @@ class ILSWQ_Plugin {
 		$result       = $this->queue->start_job( $raw_ids, $settings );
 
 		$this->send_queue_result( $result );
+	}
+
+	/**
+	 * Start a whole-library conversion job via AJAX.
+	 *
+	 * @return void
+	 */
+	public function ajax_library_start() {
+		$this->verify_ajax();
+		check_ajax_referer( 'ilswq_admin', 'nonce' );
+
+		$raw_settings = isset( $_POST['settings'] ) && is_array( $_POST['settings'] ) ? map_deep( wp_unslash( $_POST['settings'] ), 'sanitize_text_field' ) : array();
+		$settings     = ILSWQ_Settings::from_request( $raw_settings );
+		$result       = $this->queue->start_library_job( $settings );
+
+		$this->send_queue_result( $result );
+	}
+
+	/**
+	 * Rebuild stored savings totals in bounded steps via AJAX.
+	 *
+	 * @return void
+	 */
+	public function ajax_totals_rebuild() {
+		$this->verify_ajax();
+		check_ajax_referer( 'ilswq_admin', 'nonce' );
+		$this->verify_queue_idle_for_file_mutation();
+
+		$restart = isset( $_POST['restart'] ) && is_scalar( $_POST['restart'] ) ? absint( sanitize_text_field( wp_unslash( $_POST['restart'] ) ) ) : 0;
+
+		wp_send_json_success( ILSWQ_Totals::rebuild_step( $restart > 0 ) );
 	}
 
 	/**

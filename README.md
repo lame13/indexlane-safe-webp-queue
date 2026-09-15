@@ -11,10 +11,14 @@ Create WebP copies of your WordPress Media Library images, compare the file-size
 Open **Tools → IndexLane Safe WebP Queue**, check your server's WebP support, and select **Scan Media Library**. Choose a few eligible images, click **Convert Selected**, and review the results before working through more of your library.
 
 - **Keep control of the work.** Convert attachments and their generated sizes in small batches. Progress is saved when you close the page, with pause, resume, cancel, and failed-item retry controls.
+- **Convert the whole library.** Choose **Convert Entire Library** to queue every convertible image at once and let the background job work through it in the same bounded batches.
+- **Work from the Media Library.** A WebP column shows each image's status and savings, with row actions to convert or exclude a single image and bulk actions for several at a time.
 - **Find the images that matter.** Search the report by filename, title, or attachment ID and combine search with a status filter. Conversion selection and CSV exports use the matching results.
 - **Judge the result yourself.** Compare original and WebP sizes and see why an image was skipped or failed. New WebPs that are larger than their source are skipped by default.
+- **See the savings.** Stored totals track generated files, original bytes covered, WebP bytes written, and the resulting savings, and they are rebuilt on demand from attachment metadata.
 - **Keep your originals.** Remove this plugin's WebP copies when needed. WebP files created by other tools are reported as conflicts and left alone.
 - **Choose when to go live.** Optional frontend serving uses matching copies in normal WordPress image output. Optional new-upload conversion queues future images after WordPress creates their sizes. Both settings start off.
+- **Script it.** `wp ilswq status|scan|convert|totals|queue|cleanup` covers reporting, conversion, and cleanup from the command line.
 
 Background work uses WP-Cron and depends on site traffic or a configured cron runner. Your server needs a compatible WordPress image editor with GD or Imagick WebP support; server checks and memory estimates help skip files that are too demanding.
 
@@ -46,6 +50,7 @@ Install that ZIP in an isolated WordPress environment, then run:
 
 ```sh
 php tests/smoke-wordpress.php /path/to/wordpress
+php tests/cli-wordpress.php /path/to/wordpress
 ```
 
-The smoke test exercises JPEG and transparent PNG conversion, generated sizes, persistent queue controls and retries, foreign WebP protection, optional frontend serving, automatic uploads, source and quality changes, and attachment cleanup. Set `ILSWQ_SMOKE_EDITOR=GD` or `ILSWQ_SMOKE_EDITOR=Imagick` to check a specific editor.
+The smoke test exercises JPEG and transparent PNG conversion, generated sizes, persistent queue controls and retries, whole-library jobs, exclusions, Media Library actions, stored savings totals and rebuilds, foreign WebP protection, optional frontend serving, automatic uploads, source and quality changes, and attachment cleanup. The WP-CLI test boots WordPress with a WP-CLI stand-in and runs every command. Set `ILSWQ_SMOKE_EDITOR=GD` or `ILSWQ_SMOKE_EDITOR=Imagick` to check a specific editor.

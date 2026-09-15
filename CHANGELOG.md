@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 - 2026-09-15
+
+- Added whole-library background conversion with bounded batches, attachment ID cursors, pause/resume/cancel, and retries that remain available after large failure counts.
+- Added Media Library WebP status and savings, row and bulk conversion actions, and per-image exclusions from conversion and frontend serving.
+- Added incremental savings totals and bounded recalculation for earlier conversions, partial cleanup, and attachment-deletion retries.
+- Added WP-CLI status, scan, convert, totals, queue, and cleanup commands with dry runs and whole-library conversion.
+- Fixed exclusions changed after queuing, CLI output formatting and command registration, automatic queue draining, and cleanup/recalculation conflicts with queued conversion.
+- Expanded WordPress and CLI regression coverage for library changes between batches and consistent savings after cleanup retries.
+
 ## 0.2.1 - 2026-09-08
 
 - Added report search by filename, attachment title, and ID with matching result counts.

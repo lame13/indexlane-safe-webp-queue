@@ -125,6 +125,12 @@ class ILSWQ_Serving {
 			return self::$entry_cache[ $attachment_id ];
 		}
 
+		if ( ILSWQ_Scanner::is_excluded( $attachment_id ) ) {
+			self::$entry_cache[ $attachment_id ] = array();
+
+			return self::$entry_cache[ $attachment_id ];
+		}
+
 		$map     = ILSWQ_Scanner::get_webp_map( $attachment_id );
 		$entries = array();
 

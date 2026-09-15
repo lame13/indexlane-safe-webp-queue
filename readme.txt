@@ -4,7 +4,7 @@ Tags: webp, image optimization, images, media library, performance
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.2.1
+Stable tag: 0.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -23,6 +23,18 @@ Everything runs on your own server, right inside WordPress. No cloud account to 
 Start with a scan to see which images your server can convert. Choose a few to try or work through your library in small batches. The plugin covers both your main attachment images and the thumbnail and other sizes WordPress creates.
 
 Your conversion job keeps its progress if you close the page. Pause when you need to, resume later, and retry failed conversions from the same screen. Background processing uses WP-Cron, so progress while you're away depends on site traffic or a configured cron runner.
+
+= Convert the whole library, in the background =
+
+You do not have to pick images one at a time. Choose **Convert Entire Library** and the plugin queues every convertible image in your Media Library, then works through it in small batches. The job can be paused, resumed, or cancelled, and it keeps its progress if you close the browser. Images you excluded are skipped, so a full-library run never overrides your decisions.
+
+= Manage conversion from the Media Library =
+
+The Media Library list has a WebP column that shows the status and savings of each image. Use the row actions to convert a single image or to exclude it from conversion, and use the bulk actions to convert or exclude several images at once. Excluded images keep their originals, are skipped by conversion jobs, and are not served as WebP even if copies already exist.
+
+= See how much you saved =
+
+The plugin page keeps a running total of the WebP files it generated, the size of the originals they cover, the size of the WebP copies, and the resulting savings. Totals update as conversions finish and drop again when you delete generated files. If you upgraded from an earlier version, choose **Recalculate** once to rebuild the totals from the stored plugin metadata.
 
 = Keep the images you trust =
 
@@ -43,6 +55,10 @@ Turn on optional frontend serving to use matching WebP copies in normal WordPres
 You can also enable automatic conversion for future uploads. New images join the queue after WordPress creates their sizes, keeping conversion out of the upload request.
 
 Both options start **off**, so you can convert and review your images before changing what visitors receive.
+
+= Script it with WP-CLI =
+
+Sites managed from the command line can use `wp ilswq status`, `wp ilswq scan`, `wp ilswq convert`, `wp ilswq totals`, `wp ilswq queue`, and `wp ilswq cleanup`. `wp ilswq convert --all` runs the whole-library job to completion, and `--dry-run` reports what would change first.
 
 = Start with a few images =
 
@@ -79,7 +95,23 @@ No. Your server does the conversion using a compatible WordPress image editor wi
 
 = Can I close the page while a conversion runs? =
 
-Yes. Conversion progress is saved, and WP-Cron can continue the queue when your site receives traffic. If traffic is low or WP-Cron is disabled, work may wait until you reopen the plugin page or your configured cron runner runs. You can pause, resume, cancel pending work, or retry failures from the queue controls.
+Yes. Conversion progress is saved, and WP-Cron can continue the queue when your site receives traffic. If traffic is low or WP-Cron is disabled, work may wait until you reopen the plugin page or your configured cron runner runs. You can pause, resume, cancel pending work, or retry failures from the queue controls. If a whole-library job has more than 10,000 failures, retry rescans the library and reuses valid existing WebP files.
+
+= How do I convert my whole Media Library? =
+
+Choose **Convert Entire Library** on the plugin page. The plugin counts the convertible images, queues them all, and works through them in the same small batches used for selected images. The queue panel shows the scope, progress, and any failures, and the job continues with WP-Cron between visits. Because images are converted one batch at a time, a large library is safe to leave running.
+
+= Can I keep an image out of WebP conversion? =
+
+Yes. Use **Exclude from WebP** in the Media Library row actions, or the exclude bulk action for several images at once. Excluded images are skipped by every conversion job, are not regenerated when you change quality settings, and are not served as WebP. Existing copies generated earlier stay on disk until you delete them, and you can include an image again at any time.
+
+= Where do the savings numbers come from? =
+
+The plugin records the original and WebP byte size of every file it generates, so the totals on the plugin page reflect real files rather than estimates. Totals are adjusted when files are regenerated or deleted. If you converted images with an earlier version, press **Recalculate** once to rebuild the totals from the metadata stored on your attachments.
+
+= Can I use WP-CLI? =
+
+Yes. `wp ilswq status` reports server support, settings, queue state, and stored savings; `wp ilswq scan` lists images with their status; `wp ilswq convert` converts specific IDs, a dry run, or the whole library with `--all`; `wp ilswq totals` shows or rebuilds the savings; `wp ilswq queue` inspects or controls the queue; and `wp ilswq cleanup` removes generated WebP files.
 
 = Can new uploads be converted automatically? =
 
@@ -105,6 +137,15 @@ The plugin detects source-file and quality-setting changes before regenerating i
 4. Choose when to serve WebP to visitors and whether to convert future uploads automatically.
 
 == Changelog ==
+
+= 0.3.0 =
+
+* Added whole-library background conversion with bounded batches, stable attachment cursors, and existing queue controls.
+* Added Media Library WebP status, savings, conversion actions, and per-image exclusions for conversion and serving.
+* Added stored savings totals and a bounded rebuild for images converted by earlier versions.
+* Added WP-CLI commands for status, scanning, conversion, queue controls, savings, and cleanup.
+* Kept exclusions effective after queuing and corrected savings accounting for partial cleanup and orphan retries.
+* Validated real WP-CLI formatting, automatic queue draining, and cleanup conflict checks.
 
 = 0.2.1 =
 

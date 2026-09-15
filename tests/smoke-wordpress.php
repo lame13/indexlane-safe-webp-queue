@@ -38,8 +38,8 @@ if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
 }
 
 $plugin_data = get_plugin_data( WP_PLUGIN_DIR . '/indexlane-safe-webp-queue/indexlane-safe-webp-queue.php', false, false );
-if ( 'IndexLane Safe WebP Queue' !== $plugin_data['Name'] || '0.2.1' !== $plugin_data['Version'] || ! empty( $plugin_data['UpdateURI'] ) ) {
-	fwrite( STDERR, "Release plugin metadata does not match 0.2.1.\n" );
+if ( 'IndexLane Safe WebP Queue' !== $plugin_data['Name'] || '0.3.0' !== $plugin_data['Version'] || ! empty( $plugin_data['UpdateURI'] ) ) {
+	fwrite( STDERR, "Release plugin metadata does not match 0.3.0.\n" );
 	exit( 1 );
 }
 
@@ -229,6 +229,7 @@ delete_option( ILSWQ_Queue::JOB_OPTION );
 delete_option( ILSWQ_Queue::AUTO_OPTION );
 delete_option( ILSWQ_Queue::LOCK_OPTION );
 delete_option( ILSWQ_OPTION_ORPHAN_WEBPS );
+ILSWQ_Totals::reset();
 wp_clear_scheduled_hook( ILSWQ_Queue::CRON_HOOK );
 
 $jpeg_path         = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-photo.jpg' );
@@ -238,6 +239,7 @@ $auto_failure_path = trailingslashit( $uploads['path'] ) . wp_unique_filename( $
 $foreign_path      = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-foreign-photo.jpg' );
 $retry_path        = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-retry-photo.jpg' );
 $lifecycle_path    = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-lifecycle-photo.jpg' );
+$excluded_path     = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads['path'], 'ilswq-smoke-excluded-photo.jpg' );
 
 ilswq_smoke_create_jpeg( $jpeg_path );
 ilswq_smoke_create_png( $png_path );
@@ -246,12 +248,14 @@ ilswq_smoke_create_jpeg( $auto_failure_path );
 ilswq_smoke_create_jpeg( $foreign_path );
 ilswq_smoke_create_jpeg( $retry_path );
 ilswq_smoke_create_jpeg( $lifecycle_path );
+ilswq_smoke_create_jpeg( $excluded_path );
 
 $jpeg_id      = ilswq_smoke_insert_attachment( $jpeg_path, 'image/jpeg' );
 $png_id       = ilswq_smoke_insert_attachment( $png_path, 'image/png' );
 $foreign_id   = ilswq_smoke_insert_attachment( $foreign_path, 'image/jpeg', false );
 $retry_id     = ilswq_smoke_insert_attachment( $retry_path, 'image/jpeg' );
 $lifecycle_id = ilswq_smoke_insert_attachment( $lifecycle_path, 'image/jpeg' );
+$excluded_id  = ilswq_smoke_insert_attachment( $excluded_path, 'image/jpeg' );
 
 $scanner   = new ILSWQ_Scanner();
 $converter = new ILSWQ_Converter( $scanner );
@@ -358,6 +362,34 @@ if ( count( $jpeg_map ) < 2 ) {
 	ilswq_smoke_fail( 'JPEG did not convert any generated intermediate sizes.' );
 }
 
+$totals          = ILSWQ_Totals::summary();
+$expected_files  = count( $jpeg_map ) + count( $png_map );
+$expected_source = 0;
+$expected_webp   = 0;
+
+foreach ( array( $jpeg_map, $png_map ) as $map_entries ) {
+	foreach ( $map_entries as $entry ) {
+		$expected_source += isset( $entry['source_size'] ) ? (int) $entry['source_size'] : 0;
+		$expected_webp   += isset( $entry['webp_size'] ) ? (int) $entry['webp_size'] : 0;
+	}
+}
+
+if ( $expected_files !== (int) $totals['files'] ) {
+	ilswq_smoke_fail( 'Stored savings totals did not count every generated WebP file.' );
+}
+
+if ( $expected_source !== (int) $totals['source_bytes'] || $expected_webp !== (int) $totals['webp_bytes'] || (int) $totals['saved_bytes'] <= 0 ) {
+	ilswq_smoke_fail(
+		sprintf(
+			'Stored savings totals did not record accurate source and WebP byte counts (expected %1$d / %2$d, stored %3$d / %4$d).',
+			$expected_source,
+			$expected_webp,
+			(int) $totals['source_bytes'],
+			(int) $totals['webp_bytes']
+		)
+	);
+}
+
 $changed_quality                  = $settings;
 $changed_quality['jpeg_quality'] = 71;
 $quality_row                     = $scanner->scan_attachment( $jpeg_id, $changed_quality );
@@ -460,7 +492,11 @@ foreach ( $orphan_records as $key => $record ) {
 	}
 }
 update_option( ILSWQ_OPTION_ORPHAN_WEBPS, $orphan_records, false );
+$before_orphan_cleanup = ILSWQ_Totals::get();
 $queue->process_next_batch();
+if ( $before_orphan_cleanup['files'] - count( $orphan_records ) !== ILSWQ_Totals::get()['files'] ) {
+	ilswq_smoke_fail( 'Orphan cleanup did not remove deleted files from savings totals.' );
+}
 clearstatcache( true, $blocked_lifecycle_path );
 if ( file_exists( $blocked_lifecycle_path ) || get_option( ILSWQ_OPTION_ORPHAN_WEBPS, array() ) ) {
 	ilswq_smoke_fail( 'Background cleanup did not retry a failed attachment-sidecar deletion.' );
@@ -536,9 +572,291 @@ if ( isset( $jpeg_map['thumbnail'] ) && ( ! is_array( $thumbnail ) || false === 
 	ilswq_smoke_fail( 'Optional frontend serving did not return a WebP thumbnail URL.' );
 }
 
+$excluded_result = $converter->convert_attachment( $excluded_id, $settings );
+$excluded_map    = ilswq_smoke_validate_map( $excluded_id, 'Excluded fixture JPEG' );
+
+if ( 'converted' !== $excluded_result['status_key'] ) {
+	ilswq_smoke_fail( 'Exclusion fixture did not convert before being excluded.' );
+}
+
+if ( ! ILSWQ_Scanner::set_excluded( $excluded_id, true ) || ! ILSWQ_Scanner::is_excluded( $excluded_id ) ) {
+	ilswq_smoke_fail( 'An attachment could not be excluded from WebP conversion.' );
+}
+
+$excluded_row = $scanner->scan_attachment( $excluded_id, $settings );
+if ( 'excluded' !== $excluded_row['status_key'] || ! empty( $excluded_row['eligible'] ) ) {
+	ilswq_smoke_fail( 'An excluded attachment was still reported as eligible for conversion.' );
+}
+
+// Exclusion must also block regeneration through the converter itself.
+$excluded_settings = $settings;
+$excluded_settings['jpeg_quality'] = 42;
+$converter->convert_attachment( $excluded_id, $excluded_settings );
+if ( $excluded_map !== ILSWQ_Scanner::get_webp_map( $excluded_id ) ) {
+	ilswq_smoke_fail( 'An excluded attachment was regenerated by a direct conversion.' );
+}
+
+$excluded_status = ILSWQ_Media::status_summary( $excluded_id );
+if ( 'excluded' !== $excluded_status['key'] || '' === $excluded_status['label'] ) {
+	ilswq_smoke_fail( 'The Media Library status summary did not report an excluded attachment.' );
+}
+
+$excluded_served = wp_get_attachment_image_src( $excluded_id, 'thumbnail' );
+if ( ! is_array( $excluded_served ) || false !== strpos( (string) $excluded_served[0], '.webp' ) ) {
+	ilswq_smoke_fail( 'An excluded attachment was still served as WebP.' );
+}
+
+$excluded_job = $queue->start_job( array( $excluded_id ), $settings );
+if ( ! is_wp_error( $excluded_job ) || 'ilswq_queue_empty' !== $excluded_job->get_error_code() ) {
+	ilswq_smoke_fail( 'An excluded attachment could still be queued for conversion.' );
+}
+
+$library_without_excluded = ILSWQ_Scanner::count_library_attachments();
+if ( ! ILSWQ_Scanner::set_excluded( $excluded_id, false ) || ILSWQ_Scanner::is_excluded( $excluded_id ) ) {
+	ilswq_smoke_fail( 'An excluded attachment could not be included again.' );
+}
+
+if ( $library_without_excluded + 1 !== ILSWQ_Scanner::count_library_attachments() ) {
+	ilswq_smoke_fail( 'Including an attachment again did not restore it to the convertible library.' );
+}
+
+$media = new ILSWQ_Media( $queue );
+$media_bulk_guest = $media->add_bulk_actions( array() );
+
+if ( isset( $media_bulk_guest[ ILSWQ_Media::BULK_CONVERT ] ) ) {
+	ilswq_smoke_fail( 'Media Library bulk actions were exposed without permission to manage options.' );
+}
+
+wp_set_current_user( 1 );
+
+$media_columns = $media->add_column(
+	array(
+		'cb'    => '',
+		'title' => 'Title',
+		'date'  => 'Date',
+	)
+);
+$media_bulk    = $media->add_bulk_actions( array() );
+
+if ( ! isset( $media_columns[ ILSWQ_Media::COLUMN ] ) || 'WebP' !== $media_columns[ ILSWQ_Media::COLUMN ] ) {
+	ilswq_smoke_fail( 'The Media Library WebP column was not registered after the title column.' );
+}
+
+if ( ! isset( $media_bulk[ ILSWQ_Media::BULK_CONVERT ], $media_bulk[ ILSWQ_Media::BULK_EXCLUDE ], $media_bulk[ ILSWQ_Media::BULK_INCLUDE ] ) ) {
+	ilswq_smoke_fail( 'The Media Library WebP bulk actions were not registered.' );
+}
+
+ob_start();
+$media->render_column( ILSWQ_Media::COLUMN, $jpeg_id );
+$media_column_html = (string) ob_get_clean();
+
+if ( false === strpos( $media_column_html, 'ilswq-status is-converted' ) ) {
+	ilswq_smoke_fail( 'The Media Library WebP column did not report a converted attachment.' );
+}
+
+$media_busy = $queue->start_job( array( $retry_id ), $settings );
+if ( is_wp_error( $media_busy ) || 'busy' !== $media->queue_conversion( array( $png_id ) ) ) {
+	ilswq_smoke_fail( 'Media Library conversion did not report an active conversion job.' );
+}
+
+$queue->cancel_job();
+
+if ( ! ILSWQ_Scanner::set_excluded( $excluded_id, true ) ) {
+	ilswq_smoke_fail( 'The Media Library exclusion fixture could not be excluded before the queue test.' );
+}
+
+if ( 'empty' !== $media->queue_conversion( array( $excluded_id ) ) ) {
+	ilswq_smoke_fail( 'An excluded attachment could still be queued from the Media Library.' );
+}
+
+if ( ! ILSWQ_Scanner::set_excluded( $excluded_id, false ) ) {
+	ilswq_smoke_fail( 'The Media Library exclusion fixture could not be included before the bulk action test.' );
+}
+
+$upload_url        = 'https://example.test/wp-admin/upload.php';
+$notice_key        = 'ilswq_notice_' . get_current_user_id();
+$excluded_redirect = $media->handle_bulk_actions( $upload_url, ILSWQ_Media::BULK_EXCLUDE, array( $excluded_id ) );
+$excluded_notice   = get_transient( $notice_key );
+
+if (
+	! ILSWQ_Scanner::is_excluded( $excluded_id ) ||
+	$upload_url !== $excluded_redirect ||
+	! is_array( $excluded_notice ) ||
+	'excluded' !== $excluded_notice['key']
+) {
+	ilswq_smoke_fail( 'The Media Library exclude bulk action did not run.' );
+}
+
+ob_start();
+$media->render_notice();
+$excluded_notice_html = (string) ob_get_clean();
+
+if ( false === strpos( $excluded_notice_html, 'notice-success' ) || false !== get_transient( $notice_key ) ) {
+	ilswq_smoke_fail( 'The Media Library exclude notice was not rendered once and then cleared.' );
+}
+
+$included_redirect = $media->handle_bulk_actions( $upload_url, ILSWQ_Media::BULK_INCLUDE, array( $excluded_id ) );
+$included_notice   = get_transient( $notice_key );
+
+if (
+	ILSWQ_Scanner::is_excluded( $excluded_id ) ||
+	$upload_url !== $included_redirect ||
+	! is_array( $included_notice ) ||
+	'included' !== $included_notice['key']
+) {
+	ilswq_smoke_fail( 'The Media Library include bulk action did not run.' );
+}
+
+delete_transient( $notice_key );
+
+$media_queued = $media->queue_conversion( array( $excluded_id ) );
+if ( 'queued' !== $media_queued ) {
+	ilswq_smoke_fail( 'A Media Library conversion could not be queued.' );
+}
+
+ob_start();
+ILSWQ_Plugin::instance()->render_admin_page();
+$admin_html = (string) ob_get_clean();
+
+foreach (
+	array(
+		'id="ilswq-library"',
+		'id="ilswq-totals-rebuild"',
+		'id="ilswq-total-saved"',
+		'id="ilswq-count-excluded"',
+		'data-ilswq-filter="excluded"',
+		'id="ilswq-queue-scope"',
+	) as $admin_fragment
+) {
+	if ( false === strpos( $admin_html, $admin_fragment ) ) {
+		ilswq_smoke_fail( 'The plugin page is missing the ' . $admin_fragment . ' control.' );
+	}
+}
+
+$media_runs = 0;
+do {
+	$media_result = $queue->process_next_batch();
+	$media_status = $media_result['queue'];
+	++$media_runs;
+	if ( $media_runs > 20 ) {
+		ilswq_smoke_fail( 'The Media Library conversion did not finish within 20 batches.' );
+	}
+} while ( in_array( $media_status['state'], array( 'queued', 'running' ), true ) );
+
+wp_set_current_user( 0 );
+
+if ( ! ILSWQ_Scanner::set_excluded( $excluded_id, true ) ) {
+	ilswq_smoke_fail( 'The exclusion fixture could not be excluded before the library job.' );
+}
+
+// Excluding work after it was queued must skip it without failure or output.
+ILSWQ_Scanner::set_excluded( $excluded_id, false );
+$queue->start_job( array( $excluded_id ), $excluded_settings );
+ILSWQ_Scanner::set_excluded( $excluded_id, true );
+$excluded_batch = $queue->process_next_batch();
+if ( 1 !== $excluded_batch['queue']['skipped'] || 0 !== $excluded_batch['queue']['failed'] || $excluded_map !== ILSWQ_Scanner::get_webp_map( $excluded_id ) ) {
+	ilswq_smoke_fail( 'An attachment excluded after queuing was converted or marked failed.' );
+}
+$queue->enqueue_upload( $excluded_id, $excluded_settings );
+$excluded_auto = get_option( ILSWQ_Queue::AUTO_OPTION, array() );
+$excluded_auto[ $excluded_id ]['available_at'] = time() - 1;
+update_option( ILSWQ_Queue::AUTO_OPTION, $excluded_auto, false );
+$excluded_batch = $queue->process_next_batch();
+if ( 0 !== $excluded_batch['queue']['automatic_pending'] || 0 !== $excluded_batch['queue']['automatic_failed'] ) {
+	ilswq_smoke_fail( 'An excluded automatic conversion was retried or marked failed.' );
+}
+
+$library_expected = ILSWQ_Scanner::count_library_attachments();
+$library_job      = $queue->start_library_job( $settings );
+
+if (
+	is_wp_error( $library_job ) ||
+	'queued' !== $library_job['state'] ||
+	empty( $library_job['is_library'] ) ||
+	$library_expected !== (int) $library_job['total']
+) {
+	ilswq_smoke_fail( 'The whole-library conversion job did not start with the expected scope.' );
+}
+
+$library_runs = 0;
+$library_seen = array();
+$library_removed_id = 0;
+do {
+	$library_result = $queue->process_next_batch();
+	$library_status = $library_result['queue'];
+	foreach ( $library_result['rows'] as $row ) {
+		$library_seen[] = (int) $row['id'];
+	}
+	if ( 0 === $library_runs && ! empty( $library_seen ) ) {
+		$library_removed_id = $library_seen[0];
+		ILSWQ_Scanner::set_excluded( $library_removed_id, true );
+	}
+	++$library_runs;
+	if ( $library_runs > 100 ) {
+		ilswq_smoke_fail( 'The whole-library conversion job did not finish within 100 batches.' );
+	}
+} while ( in_array( $library_status['state'], array( 'queued', 'running' ), true ) );
+
+if (
+	'completed' !== $library_status['state'] ||
+	(int) $library_status['processed'] !== (int) $library_status['total'] ||
+	(int) $library_status['processed'] < 2 ||
+	0 !== (int) $library_status['failed'] ||
+	empty( $library_status['is_library'] ) ||
+	'' === (string) $library_status['scope_label']
+) {
+	ilswq_smoke_fail( 'The whole-library conversion job did not complete cleanly.' );
+}
+
+if ( count( $library_seen ) !== $library_expected || count( array_unique( $library_seen ) ) !== $library_expected ) {
+	ilswq_smoke_fail( 'Changing an earlier attachment skipped or repeated later library work.' );
+}
+ILSWQ_Scanner::set_excluded( $library_removed_id, false );
+
+if ( ! ILSWQ_Scanner::is_excluded( $excluded_id ) || in_array( $excluded_id, ILSWQ_Scanner::get_library_page_ids( 0, 500 ), true ) ) {
+	ilswq_smoke_fail( 'The whole-library conversion job did not skip an excluded attachment.' );
+}
+
+if ( ! ILSWQ_Scanner::set_excluded( $excluded_id, false ) ) {
+	ilswq_smoke_fail( 'The exclusion fixture could not be included after the library job.' );
+}
+
+// A library with more failures than fit in the bounded retry list can retry.
+$overflow_job = get_option( ILSWQ_Queue::JOB_OPTION );
+$overflow_job['failed'] = ILSWQ_Queue::MAX_ATTACHMENTS + 1;
+$overflow_job['failure_ids'] = array( $jpeg_id );
+update_option( ILSWQ_Queue::JOB_OPTION, $overflow_job, false );
+$overflow_retry = $queue->retry_failed_job();
+if ( is_wp_error( $overflow_retry ) || empty( $overflow_retry['is_library'] ) ) {
+	ilswq_smoke_fail( 'A library job with an overflowed failure list could not retry.' );
+}
+$queue->cancel_job();
+
+ILSWQ_Totals::reset();
+
+$rebuild_steps = 0;
+do {
+	$rebuild = ILSWQ_Totals::rebuild_step( 0 === $rebuild_steps );
+	++$rebuild_steps;
+	if ( $rebuild_steps > 200 ) {
+		ilswq_smoke_fail( 'Rebuilding savings did not finish within 200 steps.' );
+	}
+} while ( empty( $rebuild['done'] ) );
+
+$rebuilt_totals = ILSWQ_Totals::summary();
+if ( (int) $rebuild['processed'] < 1 || (int) $rebuilt_totals['files'] < 1 || (int) $rebuilt_totals['source_bytes'] <= 0 ) {
+	ilswq_smoke_fail( 'Rebuilding savings did not recover generated WebP files from attachment metadata.' );
+}
+
+if ( ILSWQ_Totals::rebuild_active() ) {
+	ilswq_smoke_fail( 'Rebuilding savings left its cursor behind after finishing.' );
+}
+
 $webp_paths = array();
-foreach ( array_merge( $jpeg_map, $png_map, $auto_jpeg_map, $auto_failure_map, $retry_map ) as $entry ) {
-	$webp_paths[] = $entry['webp'];
+foreach ( array( $jpeg_map, $png_map, $auto_jpeg_map, $auto_failure_map, $retry_map, $excluded_map ) as $map_entries ) {
+	foreach ( $map_entries as $entry ) {
+		$webp_paths[] = $entry['webp'];
+	}
 }
 
 $blocked_path   = $jpeg_map['full']['webp'];
@@ -572,6 +890,17 @@ if ( ! metadata_exists( 'post', $jpeg_id, ILSWQ_META_WEBP_FILES ) ) {
 	ilswq_smoke_fail( 'Cleanup discarded generated-file ownership after deletion failed.' );
 }
 
+$partial_totals = ILSWQ_Totals::get();
+$partial_rebuild = ILSWQ_Totals::rebuild_step( true );
+while ( empty( $partial_rebuild['done'] ) ) {
+	$partial_rebuild = ILSWQ_Totals::rebuild_step( false );
+}
+foreach ( array( 'files', 'source_bytes', 'webp_bytes' ) as $key ) {
+	if ( $partial_totals[ $key ] !== ILSWQ_Totals::get()[ $key ] ) {
+		ilswq_smoke_fail( 'A rebuild recounted files removed by partial cleanup.' );
+	}
+}
+
 $cleanup_runs = 0;
 do {
 	$cleanup_result = $converter->cleanup_generated( 10 );
@@ -591,22 +920,29 @@ foreach ( $webp_paths as $path ) {
 	}
 }
 
+$final_totals = ILSWQ_Totals::get();
+if ( 0 !== (int) $final_totals['files'] || 0 !== (int) $final_totals['source_bytes'] || 0 !== (int) $final_totals['webp_bytes'] ) {
+	ilswq_smoke_fail( 'Deleting generated WebP files did not reduce the stored savings totals.' );
+}
+
 wp_delete_attachment( $jpeg_id, true );
 wp_delete_attachment( $png_id, true );
 wp_delete_attachment( $auto_jpeg_id, true );
 wp_delete_attachment( $auto_failure_id, true );
 wp_delete_attachment( $retry_id, true );
+wp_delete_attachment( $excluded_id, true );
 wp_delete_file( $foreign_webp );
 wp_delete_attachment( $foreign_id, true );
 delete_option( ILSWQ_Queue::JOB_OPTION );
 delete_option( ILSWQ_Queue::AUTO_OPTION );
 delete_option( ILSWQ_Queue::LOCK_OPTION );
 delete_option( ILSWQ_OPTION_ORPHAN_WEBPS );
+ILSWQ_Totals::reset();
 wp_clear_scheduled_hook( ILSWQ_Queue::CRON_HOOK );
 ILSWQ_Settings::save( $original_settings );
 
 echo sprintf(
-	"Smoke test passed with %s. Persistent jobs, retries, queued uploads, fingerprints, lifecycle cleanup, and foreign-sidecar protection passed. JPEG WebPs: %d. PNG WebPs: %d. Auto upload WebPs: %d.\n",
+	"Smoke test passed with %s. Persistent jobs, whole-library jobs, exclusions, Media Library actions, savings totals, retries, queued uploads, fingerprints, lifecycle cleanup, and foreign-sidecar protection passed. JPEG WebPs: %d. PNG WebPs: %d. Auto upload WebPs: %d.\n",
 	'' !== $expected_editor ? $expected_editor : 'the preferred editor',
 	count( $jpeg_map ),
 	count( $png_map ),

@@ -31,7 +31,7 @@
 	function setBusy(nextBusy, canPause) {
 		isBusy = nextBusy;
 		foregroundCanPause = nextBusy && !!canPause;
-		$('#ilswq-scan, #ilswq-convert, #ilswq-validate-webp, #ilswq-export, #ilswq-cleanup, #ilswq-settings-form button').prop('disabled', nextBusy);
+		$('#ilswq-scan, #ilswq-convert, #ilswq-library, #ilswq-validate-webp, #ilswq-export, #ilswq-cleanup, #ilswq-totals-rebuild, #ilswq-settings-form button').prop('disabled', nextBusy);
 		$('#ilswq-pause, #ilswq-stop').prop('disabled', !foregroundCanPause);
 		updateButtons();
 	}
@@ -56,7 +56,9 @@
 			.prop('indeterminate', selectedCount > 0 && selectedCount < $eligible.length);
 		$('#ilswq-resume').prop('disabled', isBusy || !resumeAction);
 		$('#ilswq-scan').prop('disabled', isBusy || hasActiveJob);
+		$('#ilswq-library').prop('disabled', isBusy || hasActiveJob);
 		$('#ilswq-cleanup').prop('disabled', isBusy || hasQueuedFileWork);
+		$('#ilswq-totals-rebuild').prop('disabled', isBusy || hasQueuedFileWork);
 		$('#ilswq-queue-pause').prop('disabled', isBusy || !queueStatus || !queueStatus.can_pause);
 		$('#ilswq-queue-resume').prop('disabled', isBusy || !queueStatus || !queueStatus.can_resume);
 		$('#ilswq-queue-cancel').prop('disabled', isBusy || !queueStatus || !queueStatus.can_cancel);
@@ -120,6 +122,20 @@
 		$(selector).text(value || '').prop('hidden', !value);
 	}
 
+	function renderTotals(totals) {
+		if (!totals || !totals.labels) {
+			return;
+		}
+
+		$('#ilswq-total-files').text(totals.labels.files || '0');
+		$('#ilswq-total-source').text(totals.labels.source || '');
+		$('#ilswq-total-webp').text(totals.labels.webp || '');
+		$('#ilswq-total-saved').text(totals.labels.saved || '');
+		$('#ilswq-total-percent').text(totals.is_empty ? '' : (totals.labels.percent || ''));
+		$('#ilswq-totals-updated').prop('hidden', !totals.labels.updated);
+		$('#ilswq-totals-updated-value').text(totals.labels.updated || '');
+	}
+
 	function renderQueueStatus(status, announceCompletion) {
 		var previousState = queueStatus && queueStatus.state;
 		queueStatus = status || {
@@ -169,6 +185,9 @@
 		setOptionalText('#ilswq-queue-error', queueStatus.last_error || '');
 		setOptionalText('#ilswq-auto-pending', automaticMessage);
 		setOptionalText('#ilswq-auto-failed', automaticFailureMessage);
+		$('#ilswq-queue-scope').prop('hidden', !queueStatus.scope_label);
+		$('#ilswq-queue-scope-value').text(queueStatus.scope_label || '');
+		renderTotals(queueStatus.totals);
 
 		if (announceCompletion && ['queued', 'running'].indexOf(previousState) !== -1 && queueStatus.state === 'completed') {
 			if ((parseInt(queueStatus.failed, 10) || 0) > 0) {
@@ -336,7 +355,8 @@
 			skipped: 0,
 			failed: 0,
 			needsReview: 0,
-			conflict: 0
+			conflict: 0,
+			excluded: 0
 		};
 
 		$.each(rows, function (_, row) {
@@ -358,6 +378,9 @@
 			if (row.status_key === 'conflict') {
 				counts.conflict++;
 			}
+			if (row.status_key === 'excluded') {
+				counts.excluded++;
+			}
 		});
 
 		$('#ilswq-count-total').text(counts.total);
@@ -367,6 +390,7 @@
 		$('#ilswq-count-failed').text(counts.failed);
 		$('#ilswq-count-needs-review').text(counts.needsReview);
 		$('#ilswq-count-conflict').text(counts.conflict);
+		$('#ilswq-count-excluded').text(counts.excluded);
 	}
 
 	function visibleEligibleCheckboxes() {
@@ -525,6 +549,24 @@
 		});
 	}
 
+	function rebuildTotals(restart, processed) {
+		setProgress(ILSWQ_Admin.strings.totalsRebuilding, processed, 0);
+
+		return ajax('ilswq_totals_rebuild', {
+			restart: restart ? 1 : 0
+		}).then(function (data) {
+			if (data.totals) {
+				renderTotals(data.totals);
+			}
+
+			if (!data.done) {
+				return rebuildTotals(false, data.processed || 0);
+			}
+
+			return data;
+		});
+	}
+
 	function finishBusy() {
 		hideProgress();
 		setBusy(false);
@@ -647,6 +689,37 @@
 			resumeAction = null;
 			action();
 		}
+	});
+
+	$('#ilswq-library').on('click', function () {
+		if (!window.confirm(ILSWQ_Admin.strings.libraryConfirm)) {
+			return;
+		}
+
+		clearNotice();
+		setBusy(true);
+
+		ajax('ilswq_library_start', {
+			settings: getSettings()
+		}).then(function (data) {
+			renderQueueStatus(data.queue || null);
+			showNotice(ILSWQ_Admin.strings.libraryStarted, 'success');
+			scheduleQueueTick(100);
+		}).fail(showAjaxError).always(function () {
+			setBusy(false);
+		});
+	});
+
+	$('#ilswq-totals-rebuild').on('click', function () {
+		clearNotice();
+		setBusy(true);
+
+		rebuildTotals(true, 0).then(function () {
+			showNotice(ILSWQ_Admin.strings.totalsRebuilt, 'success');
+		}).fail(showAjaxError).always(function () {
+			hideProgress();
+			setBusy(false);
+		});
 	});
 
 	$('#ilswq-pause').on('click', function () {
