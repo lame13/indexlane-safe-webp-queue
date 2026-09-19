@@ -41,6 +41,40 @@ jobs:
           node --check assets/admin.js
           node tests/admin-js.js
 
+  browser-conversion-bundle:
+    name: Browser conversion bundle
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.4'
+
+      - name: Type check and rebuild the WebAssembly module
+        working-directory: wasm
+        run: |
+          npm ci
+          npm run build
+
+      # The committed bundle must match the committed sources, so a rebuild is
+      # compared with the files the plugin actually loads at runtime.
+      - name: Compare the shipped bundle with a clean build
+        run: |
+          diff wasm/dist/safewebp-browser.js assets/wasm/safewebp-browser.js
+          diff -r wasm/dist/assets assets/wasm/assets
+          node --input-type=module --check < assets/wasm/safewebp-browser.js
+          test -z "$(find assets/wasm -name '.*' -print -quit)"
+
+      - name: Confirm the shipped licences cover the bundled codec
+        run: |
+          grep -qF 'Google Inc' assets/wasm/THIRD-PARTY-NOTICES/libwebp-LICENSE.md
+          grep -qF 'jamsinclair' assets/wasm/THIRD-PARTY-NOTICES/jsquash-LICENSE.txt
+          grep -qF 'Apache License' assets/wasm/THIRD-PARTY-NOTICES/wasm-feature-detect-LICENSE.txt
+
   php-lint:
     name: PHP lint (${{ matrix.php }})
     runs-on: ubuntu-latest
@@ -81,22 +115,22 @@ jobs:
             image_stack: gd
             expected_editor: GD
           - php: '8.3'
-            wordpress: '7.1'
+            wordpress: '7.1.1'
             extensions: gd, mysqli
             image_stack: gd
             expected_editor: GD
           - php: '8.4'
-            wordpress: '7.1'
+            wordpress: '7.1.1'
             extensions: gd, mysqli
             image_stack: gd
             expected_editor: GD
           - php: '8.3'
-            wordpress: '7.1'
+            wordpress: '7.1.1'
             extensions: gd, imagick, mysqli
             image_stack: imagick
             expected_editor: Imagick
           - php: '8.4'
-            wordpress: '7.1'
+            wordpress: '7.1.1'
             extensions: gd, imagick, mysqli
             image_stack: imagick
             expected_editor: Imagick
@@ -145,6 +179,9 @@ jobs:
         run: php tests/smoke-wordpress.php /tmp/wp
         env:
           ILSWQ_SMOKE_EDITOR: ${{ matrix.expected_editor }}
+
+      - name: Run browser conversion backend test
+        run: php tests/browser-wordpress.php /tmp/wp
 
   plugin-check:
     name: WordPress Plugin Check

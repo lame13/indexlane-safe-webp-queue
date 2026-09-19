@@ -98,12 +98,25 @@ class ILSWQ_Capabilities {
 			__( 'Requires PHP GD with imagewebp support.', 'indexlane-safe-webp-queue' )
 		);
 
-		$has_writer = self::has_webp_writer();
-		$checks[]   = self::check(
+		$has_writer       = self::has_webp_writer();
+		$browser_enabled  = class_exists( 'ILSWQ_Browser' ) && ILSWQ_Browser::is_enabled();
+		$browser_fallback = ! $has_writer && $browser_enabled;
+		$checks[]         = self::check(
 			__( 'Local WebP writer', 'indexlane-safe-webp-queue' ),
 			$has_writer ? self::preferred_editor_label() : __( 'None found', 'indexlane-safe-webp-queue' ),
-			$has_writer ? 'pass' : 'fail',
-			__( 'At least one local editor must be able to write WebP.', 'indexlane-safe-webp-queue' )
+			$has_writer ? 'pass' : ( $browser_fallback ? 'warn' : 'fail' ),
+			$browser_fallback
+				? __( 'Browser conversion can still create WebP files on this site.', 'indexlane-safe-webp-queue' )
+				: __( 'At least one local editor must be able to write WebP.', 'indexlane-safe-webp-queue' )
+		);
+
+		$checks[] = self::check(
+			__( 'Browser conversion', 'indexlane-safe-webp-queue' ),
+			$browser_enabled ? __( 'Enabled', 'indexlane-safe-webp-queue' ) : __( 'Disabled', 'indexlane-safe-webp-queue' ),
+			$browser_enabled ? 'pass' : 'warn',
+			$browser_enabled
+				? __( 'Images can also be converted in an administrator browser with WebAssembly.', 'indexlane-safe-webp-queue' )
+				: __( 'Turn on browser conversion in Queue Settings to convert images without server WebP support.', 'indexlane-safe-webp-queue' )
 		);
 
 		$memory_limit = ini_get( 'memory_limit' );
@@ -171,7 +184,17 @@ class ILSWQ_Capabilities {
 	 * @return bool
 	 */
 	public static function has_webp_writer() {
-		return self::imagick_can_write_webp() || self::gd_can_write_webp();
+		$available = self::imagick_can_write_webp() || self::gd_can_write_webp();
+
+		/**
+		 * Filters whether the server can write WebP with a local image editor.
+		 *
+		 * Hosting setups change, and integration tests need to exercise the
+		 * browser conversion backend on a server that can write WebP.
+		 *
+		 * @param bool $available Whether a server image editor can write WebP.
+		 */
+		return (bool) apply_filters( 'ilswq_has_server_webp_writer', $available );
 	}
 
 	/**

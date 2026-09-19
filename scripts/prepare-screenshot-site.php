@@ -102,7 +102,9 @@ foreach ( get_posts( array( 'post_type' => 'attachment', 'post_status' => 'any',
 	wp_delete_attachment( (int) $attachment->ID, true );
 }
 
-ILSWQ_Settings::save( ILSWQ_Settings::defaults() );
+$demo_settings = ILSWQ_Settings::defaults();
+$demo_settings['browser_conversion'] = 1;
+ILSWQ_Settings::save( $demo_settings );
 delete_option( ILSWQ_OPTION_CLEANUP_PAGE );
 delete_option( ILSWQ_Queue::JOB_OPTION );
 delete_option( ILSWQ_Queue::AUTO_OPTION );
@@ -124,13 +126,19 @@ if ( ! empty( $uploads['error'] ) ) {
  * @return void
  */
 function ilswq_screenshot_create_jpeg( $path, $offset ) {
-	$image = imagecreatetruecolor( 1200, 800 );
-	for ( $y = 0; $y < 800; ++$y ) {
+	$image = imagecreatetruecolor( 2400, 1600 );
+	for ( $y = 0; $y < 1600; ++$y ) {
 		$red   = ( $offset + (int) ( $y / 5 ) ) % 255;
 		$green = ( 80 + $offset + (int) ( $y / 3 ) ) % 255;
 		$blue  = ( 160 + $offset + (int) ( $y / 2 ) ) % 255;
 		$color = imagecolorallocate( $image, $red, $green, $blue );
-		imageline( $image, 0, $y, 1199, $y, $color );
+		imageline( $image, 0, $y, 2399, $y, $color );
+	}
+	for ( $x = 0; $x < 2400; $x += 4 ) {
+		for ( $y = 0; $y < 1600; $y += 4 ) {
+			$detail = imagecolorallocate( $image, ( $x * 13 + $y * 7 + $offset ) % 256, ( $x * 3 + $y * 17 ) % 256, ( $x * 11 + $y * 5 ) % 256 );
+			imagefilledrectangle( $image, $x, $y, $x + 1, $y + 1, $detail );
+		}
 	}
 	imagejpeg( $image, $path, 90 );
 	imagedestroy( $image );
@@ -189,17 +197,17 @@ function ilswq_screenshot_insert_attachment( $path, $mime, $title, $generate_met
 	return (int) $attachment_id;
 }
 
-$mountain_path = trailingslashit( $uploads['path'] ) . 'mountain-landscape.jpg';
+$mountain_path = trailingslashit( $uploads['path'] ) . 'color-study.jpg';
 $artwork_path  = trailingslashit( $uploads['path'] ) . 'transparent-brand-artwork.png';
-$editorial_path = trailingslashit( $uploads['path'] ) . 'editorial-photo.jpg';
+$editorial_path = trailingslashit( $uploads['path'] ) . 'existing-webp.jpg';
 
 ilswq_screenshot_create_jpeg( $mountain_path, 15 );
 ilswq_screenshot_create_png( $artwork_path );
 ilswq_screenshot_create_jpeg( $editorial_path, 105 );
 
-ilswq_screenshot_insert_attachment( $mountain_path, 'image/jpeg', 'Mountain Landscape' );
+ilswq_screenshot_insert_attachment( $mountain_path, 'image/jpeg', 'Color Study' );
 ilswq_screenshot_insert_attachment( $artwork_path, 'image/png', 'Transparent Brand Artwork' );
-ilswq_screenshot_insert_attachment( $editorial_path, 'image/jpeg', 'Editorial Photo', false );
+ilswq_screenshot_insert_attachment( $editorial_path, 'image/jpeg', 'Existing WebP Example', false );
 
 $source = imagecreatefromjpeg( $editorial_path );
 if ( false === $source || ! imagewebp( $source, ILSWQ_Scanner::output_path( $editorial_path ), 82 ) ) {

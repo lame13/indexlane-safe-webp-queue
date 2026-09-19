@@ -425,6 +425,19 @@ if ( empty( ILSWQ_Scanner::get_webp_map( $jpeg_id ) ) ) {
 }
 
 WP_CLI::reset_output();
+$lock = $test_queue->acquire_lock();
+if ( false === $lock ) {
+	ilswq_cli_fail( 'Could not hold the browser-save lock for CLI regression tests.' );
+}
+foreach ( array( 'cleanup', 'totals' ) as $command ) {
+	try {
+		$cli->$command( array(), array( 'yes' => true, 'recalculate' => true ) );
+		ilswq_cli_fail( 'CLI ' . $command . ' accepted an active browser-save lock.' );
+	} catch ( RuntimeException $exception ) {
+		// Expected: concurrent browser saves own the generated files and totals.
+	}
+}
+$test_queue->release_lock( $lock );
 $cli->cleanup( array(), array( 'yes' => '1' ) );
 
 if ( ! WP_CLI::has_line( 'Deleted ' ) ) {

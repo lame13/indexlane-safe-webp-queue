@@ -1,0 +1,15 @@
+{
+  "name": "safewebp-browser-reference",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "^20.19.0 || >=22.12.0" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.worker.json",
+    "build": "npm run typecheck && npm test && vite build",
+    "test": "node tests.mjs",
+    "dev": "vite --host 127.0.0.1"
+  },
+  "dependencies": { "@jsquash/webp": "1.5.0" },
+  "devDependencies": { "typescript": "7.0.2", "vite": "8.3.0" }
+}

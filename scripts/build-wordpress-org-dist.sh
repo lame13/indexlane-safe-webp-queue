@@ -25,7 +25,7 @@ if grep -Eq '^[[:space:]]*\*[[:space:]]*Update URI:' "${plugin_file}"; then
 fi
 
 if ! grep -Fqx "Stable tag: ${version}" "${repository_root}/readme.txt" ||
-	! grep -Fqx 'Tested up to: 7.1' "${repository_root}/readme.txt" ||
+	! grep -Fqx 'Tested up to: 7.1.1' "${repository_root}/readme.txt" ||
 	! grep -Fqx 'Contributors: wpfixpath' "${repository_root}/readme.txt"; then
 	printf 'The WordPress.org readme metadata is not aligned with the release.\n' >&2
 	exit 1
@@ -53,6 +53,8 @@ wordpress_org_assets=(
 	"screenshot-2.png"
 	"screenshot-3.png"
 	"screenshot-4.png"
+	"screenshot-5.png"
+	"screenshot-6.png"
 )
 
 for relative_path in "${release_files[@]}" "${release_directories[@]}" "${wordpress_org_assets[@]}"; do
@@ -84,6 +86,42 @@ done
 for relative_path in "${release_directories[@]}"; do
 	cp -R "${repository_root}/${relative_path}" "${package_root}/"
 done
+
+# Finder metadata is local workspace state, never a release input.
+find "${package_root}" -type f -name '.DS_Store' -delete
+
+# Bundler metadata is not needed at runtime, and hidden directories are not
+# allowed in a WordPress.org release package.
+if [[ -d "${package_root}/assets/wasm/.vite" ]]; then
+	rm -rf "${package_root}/assets/wasm/.vite"
+fi
+
+if [[ ! -f "${package_root}/assets/wasm/safewebp-browser.js" ]]; then
+	printf 'The browser conversion bundle is missing from the release package.\n' >&2
+	exit 1
+fi
+
+notice_dir="${package_root}/assets/wasm/THIRD-PARTY-NOTICES"
+for notice in "libwebp-LICENSE.md:Google Inc" "jsquash-LICENSE.txt:jamsinclair" "wasm-feature-detect-LICENSE.txt:Apache License"; do
+	notice_file="${notice%%:*}"
+	notice_text="${notice#*:}"
+	if [[ ! -s "${notice_dir}/${notice_file}" ]] || ! grep -qF "${notice_text}" "${notice_dir}/${notice_file}"; then
+		printf 'A bundled third-party licence is missing or incomplete: %s\n' "${notice_file}" >&2
+		exit 1
+	fi
+done
+
+wasm_asset_count="$(find "${package_root}/assets/wasm/assets" -type f | wc -l | tr -d ' ')"
+if [[ "${wasm_asset_count}" -lt 2 ]]; then
+	printf 'The browser conversion bundle is missing its WebAssembly assets.\n' >&2
+	exit 1
+fi
+
+hidden_entry="$(find "${package_root}" -name '.*' -print -quit)"
+if [[ -n "${hidden_entry}" ]]; then
+	printf 'The release package contains a hidden file: %s\n' "${hidden_entry}" >&2
+	exit 1
+fi
 
 if find "${package_root}" -name '.DS_Store' -o -name '__MACOSX' | grep -q .; then
 	printf 'The release package contains macOS archive metadata.\n' >&2

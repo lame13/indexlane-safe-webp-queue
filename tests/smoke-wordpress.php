@@ -38,8 +38,8 @@ if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
 }
 
 $plugin_data = get_plugin_data( WP_PLUGIN_DIR . '/indexlane-safe-webp-queue/indexlane-safe-webp-queue.php', false, false );
-if ( 'IndexLane Safe WebP Queue' !== $plugin_data['Name'] || '0.3.0' !== $plugin_data['Version'] || ! empty( $plugin_data['UpdateURI'] ) ) {
-	fwrite( STDERR, "Release plugin metadata does not match 0.3.0.\n" );
+if ( 'IndexLane Safe WebP Queue' !== $plugin_data['Name'] || '1.0.0' !== $plugin_data['Version'] || ! empty( $plugin_data['UpdateURI'] ) ) {
+	fwrite( STDERR, "Release plugin metadata does not match 1.0.0.\n" );
 	exit( 1 );
 }
 
@@ -395,6 +395,28 @@ $changed_quality['jpeg_quality'] = 71;
 $quality_row                     = $scanner->scan_attachment( $jpeg_id, $changed_quality );
 if ( 'needs-review' !== $quality_row['status_key'] || empty( $quality_row['eligible'] ) || false === strpos( $quality_row['reason'], 'quality' ) ) {
 	ilswq_smoke_fail( 'A changed JPEG quality setting did not mark generated output for safe regeneration.' );
+}
+
+// The encoded bytes must honor quality too: core resets it on MIME conversion.
+foreach ( array( $jpeg_id => 'jpeg_quality', $png_id => 'png_quality' ) as $quality_id => $quality_key ) {
+	$probe_settings = $settings;
+	$probe_settings['skip_larger'] = 0;
+	$output_hashes = array();
+	$output_sizes = array();
+	foreach ( array( 25, 90 ) as $probe_quality ) {
+		$probe_settings[ $quality_key ] = $probe_quality;
+		$converter->convert_attachment( $quality_id, $probe_settings );
+		$probe_map = ilswq_smoke_validate_map( $quality_id, 'Quality regression' );
+		$output_hashes[] = hash_file( 'sha256', $probe_map['full']['webp'] );
+		$output_sizes[] = (int) $probe_map['full']['webp_size'];
+	}
+	if ( $output_hashes[0] === $output_hashes[1] || $output_sizes[0] >= $output_sizes[1] ) {
+		ilswq_smoke_fail( 'Changing ' . $quality_key . ' did not change the encoded output as expected.' );
+	}
+	$converter->convert_attachment( $quality_id, $settings );
+}
+if ( 37 !== apply_filters( 'wp_editor_set_quality', 37, 'image/webp' ) ) {
+	ilswq_smoke_fail( 'The conversion quality override leaked into subsequent editor operations.' );
 }
 
 $disable_editors = static function () {

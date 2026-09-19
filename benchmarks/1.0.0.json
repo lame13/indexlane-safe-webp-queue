@@ -1,0 +1,1177 @@
+{
+  "chrome": "153.0.8010.52",
+  "fixtures": [
+    {
+      "label": "large-jpg",
+      "width": 3000,
+      "height": 1348,
+      "bytes": 1077531,
+      "sha256": "ad944e55280d32341633aa286aa3d9a20b7fb63c86a0abd7d399b653e6b203b3"
+    },
+    {
+      "label": "small-jpg",
+      "width": 600,
+      "height": 270,
+      "bytes": 51382,
+      "sha256": "7704e0677ae199debf52108a792ddbd56cfdf9b01284cdbb54023ebf55b5e95d"
+    },
+    {
+      "label": "large-png",
+      "width": 3000,
+      "height": 1348,
+      "bytes": 6105941,
+      "sha256": "383feec6f02bb8d3218a3b503ea9d869f0379c0b49131bb021197f944af1d7f4"
+    },
+    {
+      "label": "small-png",
+      "width": 600,
+      "height": 400,
+      "bytes": 2627,
+      "sha256": "876144c029b4ece7320a5dfb31eb205f47f39fbfda89d9f3569038bae87f4ad2"
+    }
+  ],
+  "records": [
+    {
+      "fixture": "large-jpg",
+      "mode": "GD",
+      "medianSeconds": 0.3649000000357628,
+      "outputBytes": 566358,
+      "savedPercent": 47.43928480943935,
+      "runs": [
+        {
+          "seconds": 0.37660000002384186,
+          "phases": {},
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "GD",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": true
+        },
+        {
+          "seconds": 0.377,
+          "phases": {},
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "GD",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.3663000000119209,
+          "phases": {},
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "GD",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.3649000000357628,
+          "phases": {},
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "GD",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.36119999998807906,
+          "phases": {},
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "GD",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.3618000000119209,
+          "phases": {},
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "GD",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        }
+      ]
+    },
+    {
+      "fixture": "large-jpg",
+      "mode": "Imagick",
+      "medianSeconds": 0.37119999998807907,
+      "outputBytes": 566358,
+      "savedPercent": 47.43928480943935,
+      "runs": [
+        {
+          "seconds": 0.37689999997615814,
+          "phases": {},
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "Imagick",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": true
+        },
+        {
+          "seconds": 0.37260000002384186,
+          "phases": {},
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "Imagick",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.36989999997615813,
+          "phases": {},
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "Imagick",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.3685,
+          "phases": {},
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "Imagick",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.37119999998807907,
+          "phases": {},
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "Imagick",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.3735,
+          "phases": {},
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "Imagick",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        }
+      ]
+    },
+    {
+      "fixture": "large-jpg",
+      "mode": "browser",
+      "medianSeconds": 0.6336000000238419,
+      "outputBytes": 566358,
+      "savedPercent": 47.43928480943935,
+      "runs": [
+        {
+          "seconds": 0.641,
+          "phases": {
+            "preparing": 0.0005,
+            "downloading": 0.029700000047683715,
+            "encoding": 0.0335,
+            "uploading": 0.5891000000238419
+          },
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": true
+        },
+        {
+          "seconds": 0.6323999999761581,
+          "phases": {
+            "preparing": 9.999996423721313e-05,
+            "downloading": 0.027199999988079072,
+            "encoding": 0.030699999988079072,
+            "uploading": 0.5850999999642372
+          },
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.6363999999761581,
+          "phases": {
+            "preparing": 9.999996423721313e-05,
+            "downloading": 0.02819999998807907,
+            "encoding": 0.03169999998807907,
+            "uploading": 0.587199999988079
+          },
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.6371999999880791,
+          "phases": {
+            "preparing": 0,
+            "downloading": 0.027899999976158142,
+            "encoding": 0.03130000001192093,
+            "uploading": 0.5895999999642372
+          },
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.6328999999761581,
+          "phases": {
+            "preparing": 9.999996423721313e-05,
+            "downloading": 0.02769999998807907,
+            "encoding": 0.031199999988079073,
+            "uploading": 0.5830999999642372
+          },
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.6336000000238419,
+          "phases": {
+            "preparing": 0,
+            "downloading": 0.0275,
+            "encoding": 0.031,
+            "uploading": 0.5866000000238418
+          },
+          "bytes": 566358,
+          "sha256": "16e7b26a9a2c912a18d51089822cd6e0184472e90b865d157418495e8a5982b7",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        }
+      ]
+    },
+    {
+      "fixture": "small-jpg",
+      "mode": "GD",
+      "medianSeconds": 0.04169999998807907,
+      "outputBytes": 28002,
+      "savedPercent": 45.502315986143,
+      "runs": [
+        {
+          "seconds": 0.041,
+          "phases": {},
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "GD",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": true
+        },
+        {
+          "seconds": 0.0415,
+          "phases": {},
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "GD",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.04169999998807907,
+          "phases": {},
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "GD",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.04169999998807907,
+          "phases": {},
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "GD",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.04119999998807907,
+          "phases": {},
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "GD",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.04289999997615814,
+          "phases": {},
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "GD",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        }
+      ]
+    },
+    {
+      "fixture": "small-jpg",
+      "mode": "Imagick",
+      "medianSeconds": 0.042,
+      "outputBytes": 28002,
+      "savedPercent": 45.502315986143,
+      "runs": [
+        {
+          "seconds": 0.04279999995231629,
+          "phases": {},
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "Imagick",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": true
+        },
+        {
+          "seconds": 0.042,
+          "phases": {},
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "Imagick",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.0415,
+          "phases": {},
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "Imagick",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.041800000011920926,
+          "phases": {},
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "Imagick",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.0425,
+          "phases": {},
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "Imagick",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.04330000001192093,
+          "phases": {},
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "Imagick",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        }
+      ]
+    },
+    {
+      "fixture": "small-jpg",
+      "mode": "browser",
+      "medianSeconds": 0.09520000004768371,
+      "outputBytes": 28002,
+      "savedPercent": 45.502315986143,
+      "runs": [
+        {
+          "seconds": 0.09560000002384186,
+          "phases": {
+            "preparing": 0,
+            "downloading": 0.019100000023841858,
+            "encoding": 0.02060000002384186,
+            "uploading": 0.0635
+          },
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": true
+        },
+        {
+          "seconds": 0.09379999995231629,
+          "phases": {
+            "preparing": 9.999996423721313e-05,
+            "downloading": 0.01889999997615814,
+            "encoding": 0.02019999998807907,
+            "uploading": 0.062
+          },
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.09539999997615814,
+          "phases": {
+            "preparing": 0.00010000002384185791,
+            "downloading": 0.01880000001192093,
+            "encoding": 0.020399999976158142,
+            "uploading": 0.06260000002384186
+          },
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.09520000004768371,
+          "phases": {
+            "preparing": 0,
+            "downloading": 0.019400000035762786,
+            "encoding": 0.021,
+            "uploading": 0.06370000004768371
+          },
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.095,
+          "phases": {
+            "preparing": 9.999996423721313e-05,
+            "downloading": 0.019099999964237214,
+            "encoding": 0.0205,
+            "uploading": 0.063
+          },
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.097,
+          "phases": {
+            "preparing": 0,
+            "downloading": 0.019800000011920928,
+            "encoding": 0.02119999998807907,
+            "uploading": 0.06360000002384186
+          },
+          "bytes": 28002,
+          "sha256": "a880842e8a7c90456a5a9e0eddd498b4b548f5fb5d600b4437fd992de4f20f86",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            600,
+            270
+          ],
+          "warmup": false
+        }
+      ]
+    },
+    {
+      "fixture": "large-png",
+      "mode": "GD",
+      "medianSeconds": 0.407,
+      "outputBytes": 544726,
+      "savedPercent": 91.07875428210001,
+      "runs": [
+        {
+          "seconds": 0.4077000000476837,
+          "phases": {},
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "GD",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": true
+        },
+        {
+          "seconds": 0.407,
+          "phases": {},
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "GD",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.4015,
+          "phases": {},
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "GD",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.41419999998807905,
+          "phases": {},
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "GD",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.4159000000357628,
+          "phases": {},
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "GD",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.4025,
+          "phases": {},
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "GD",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        }
+      ]
+    },
+    {
+      "fixture": "large-png",
+      "mode": "Imagick",
+      "medianSeconds": 0.4095,
+      "outputBytes": 544726,
+      "savedPercent": 91.07875428210001,
+      "runs": [
+        {
+          "seconds": 0.4228000000119209,
+          "phases": {},
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "Imagick",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": true
+        },
+        {
+          "seconds": 0.4108000000119209,
+          "phases": {},
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "Imagick",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.4095,
+          "phases": {},
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "Imagick",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.40919999998807904,
+          "phases": {},
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "Imagick",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.40840000003576277,
+          "phases": {},
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "Imagick",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.4095,
+          "phases": {},
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "Imagick",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        }
+      ]
+    },
+    {
+      "fixture": "large-png",
+      "mode": "browser",
+      "medianSeconds": 0.7374000000357628,
+      "outputBytes": 544726,
+      "savedPercent": 91.07875428210001,
+      "runs": [
+        {
+          "seconds": 0.7444000000357628,
+          "phases": {
+            "preparing": 0.00010000002384185791,
+            "downloading": 0.07030000001192092,
+            "encoding": 0.08469999998807907,
+            "uploading": 0.6534000000357628
+          },
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": true
+        },
+        {
+          "seconds": 0.7429000000357628,
+          "phases": {
+            "preparing": 0,
+            "downloading": 0.07110000002384186,
+            "encoding": 0.08490000003576278,
+            "uploading": 0.655
+          },
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.7369000000357628,
+          "phases": {
+            "preparing": 0,
+            "downloading": 0.07060000002384186,
+            "encoding": 0.08319999998807907,
+            "uploading": 0.6476000000238419
+          },
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.7355,
+          "phases": {
+            "preparing": 0.00019999998807907106,
+            "downloading": 0.06919999998807908,
+            "encoding": 0.08219999998807907,
+            "uploading": 0.648
+          },
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.7374000000357628,
+          "phases": {
+            "preparing": 0.00010000002384185791,
+            "downloading": 0.0705,
+            "encoding": 0.08360000002384185,
+            "uploading": 0.6476000000238419
+          },
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.7388000000119209,
+          "phases": {
+            "preparing": 9.999996423721313e-05,
+            "downloading": 0.06989999997615814,
+            "encoding": 0.083,
+            "uploading": 0.6505
+          },
+          "bytes": 544726,
+          "sha256": "e59a43c60b379a9a937695002fb5275d45ca8475c76da933a52db60c36b28323",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            3000,
+            1348
+          ],
+          "warmup": false
+        }
+      ]
+    },
+    {
+      "fixture": "small-png",
+      "mode": "GD",
+      "medianSeconds": 0.03989999997615814,
+      "outputBytes": 2316,
+      "savedPercent": 11.83859916254283,
+      "runs": [
+        {
+          "seconds": 0.03919999998807907,
+          "phases": {},
+          "bytes": 2316,
+          "sha256": "352fa27322974747253e501f9ab276f8694535f580198d9eed24831882380765",
+          "editor": "GD",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": true
+        },
+        {
+          "seconds": 0.04,
+          "phases": {},
+          "bytes": 2316,
+          "sha256": "352fa27322974747253e501f9ab276f8694535f580198d9eed24831882380765",
+          "editor": "GD",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.03990000003576279,
+          "phases": {},
+          "bytes": 2316,
+          "sha256": "352fa27322974747253e501f9ab276f8694535f580198d9eed24831882380765",
+          "editor": "GD",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.0385,
+          "phases": {},
+          "bytes": 2316,
+          "sha256": "352fa27322974747253e501f9ab276f8694535f580198d9eed24831882380765",
+          "editor": "GD",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.03989999997615814,
+          "phases": {},
+          "bytes": 2316,
+          "sha256": "352fa27322974747253e501f9ab276f8694535f580198d9eed24831882380765",
+          "editor": "GD",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.03809999996423721,
+          "phases": {},
+          "bytes": 2316,
+          "sha256": "352fa27322974747253e501f9ab276f8694535f580198d9eed24831882380765",
+          "editor": "GD",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        }
+      ]
+    },
+    {
+      "fixture": "small-png",
+      "mode": "Imagick",
+      "medianSeconds": 0.04230000001192093,
+      "outputBytes": 2316,
+      "savedPercent": 11.83859916254283,
+      "runs": [
+        {
+          "seconds": 0.04139999997615814,
+          "phases": {},
+          "bytes": 2316,
+          "sha256": "352fa27322974747253e501f9ab276f8694535f580198d9eed24831882380765",
+          "editor": "Imagick",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": true
+        },
+        {
+          "seconds": 0.04190000003576279,
+          "phases": {},
+          "bytes": 2316,
+          "sha256": "352fa27322974747253e501f9ab276f8694535f580198d9eed24831882380765",
+          "editor": "Imagick",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.040599999964237216,
+          "phases": {},
+          "bytes": 2316,
+          "sha256": "352fa27322974747253e501f9ab276f8694535f580198d9eed24831882380765",
+          "editor": "Imagick",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.04230000001192093,
+          "phases": {},
+          "bytes": 2316,
+          "sha256": "352fa27322974747253e501f9ab276f8694535f580198d9eed24831882380765",
+          "editor": "Imagick",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.07790000003576279,
+          "phases": {},
+          "bytes": 2316,
+          "sha256": "352fa27322974747253e501f9ab276f8694535f580198d9eed24831882380765",
+          "editor": "Imagick",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.05059999996423721,
+          "phases": {},
+          "bytes": 2316,
+          "sha256": "352fa27322974747253e501f9ab276f8694535f580198d9eed24831882380765",
+          "editor": "Imagick",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        }
+      ]
+    },
+    {
+      "fixture": "small-png",
+      "mode": "browser",
+      "medianSeconds": 0.09380000001192093,
+      "outputBytes": 2322,
+      "savedPercent": 11.610201751046823,
+      "runs": [
+        {
+          "seconds": 0.11530000001192092,
+          "phases": {
+            "preparing": 0.00010000002384185791,
+            "downloading": 0.02019999998807907,
+            "encoding": 0.02180000001192093,
+            "uploading": 0.07660000002384186
+          },
+          "bytes": 2322,
+          "sha256": "e2c86af31a5872b2078e6498eef3f8b927cf7dc46a698da989d71ea407d83055",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": true
+        },
+        {
+          "seconds": 0.09519999998807907,
+          "phases": {
+            "preparing": 0,
+            "downloading": 0.019,
+            "encoding": 0.02019999998807907,
+            "uploading": 0.06559999996423721
+          },
+          "bytes": 2322,
+          "sha256": "e2c86af31a5872b2078e6498eef3f8b927cf7dc46a698da989d71ea407d83055",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.09290000003576279,
+          "phases": {
+            "preparing": 0,
+            "downloading": 0.017900000035762788,
+            "encoding": 0.019199999988079072,
+            "uploading": 0.06360000002384186
+          },
+          "bytes": 2322,
+          "sha256": "e2c86af31a5872b2078e6498eef3f8b927cf7dc46a698da989d71ea407d83055",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.0945,
+          "phases": {
+            "preparing": 0,
+            "downloading": 0.017899999976158144,
+            "encoding": 0.019300000011920927,
+            "uploading": 0.063
+          },
+          "bytes": 2322,
+          "sha256": "e2c86af31a5872b2078e6498eef3f8b927cf7dc46a698da989d71ea407d83055",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.09380000001192093,
+          "phases": {
+            "preparing": 0.00010000002384185791,
+            "downloading": 0.018,
+            "encoding": 0.0195,
+            "uploading": 0.06380000001192093
+          },
+          "bytes": 2322,
+          "sha256": "e2c86af31a5872b2078e6498eef3f8b927cf7dc46a698da989d71ea407d83055",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        },
+        {
+          "seconds": 0.0930999999642372,
+          "phases": {
+            "preparing": 0,
+            "downloading": 0.017599999964237212,
+            "encoding": 0.018799999952316283,
+            "uploading": 0.06379999995231628
+          },
+          "bytes": 2322,
+          "sha256": "e2c86af31a5872b2078e6498eef3f8b927cf7dc46a698da989d71ea407d83055",
+          "editor": "WASM (browser)",
+          "dimensions": [
+            600,
+            400
+          ],
+          "warmup": false
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "wordpress": "7.1.1",
+    "php": "8.4.23",
+    "gd": {
+      "GD Version": "bundled (2.1.0 compatible)",
+      "FreeType Support": true,
+      "FreeType Linkage": "with freetype",
+      "GIF Read Support": true,
+      "GIF Create Support": true,
+      "JPEG Support": true,
+      "PNG Support": true,
+      "WBMP Support": true,
+      "XPM Support": false,
+      "XBM Support": true,
+      "WebP Support": true,
+      "BMP Support": true,
+      "AVIF Support": false,
+      "TGA Read Support": true,
+      "JIS-mapped Japanese Font Support": false
+    },
+    "imagick": {
+      "versionNumber": 1810,
+      "versionString": "ImageMagick 7.1.2-27 Q16-HDRI aarch64 e4c2b403b:20260705 https://imagemagick.org"
+    },
+    "hardware": "Apple M1 Pro, 32 GiB RAM",
+    "os": "macOS 26.6.2",
+    "date": "2026-09-19",
+    "plugin": "1.0.0 (uncommitted release candidate)"
+  },
+  "method": {
+    "quality": 80,
+    "lossless": false,
+    "skip_larger": false,
+    "samples": 5,
+    "discarded_warmups": 1,
+    "timing": "Browser performance.now(), per full-size file, from production conversion call through saved response; local HTTP transfers included; queue waiting, source creation and initial codec download excluded. Outputs deleted before each run.",
+    "server": "Plugin ilswq_convert AJAX handler; disposable test-site filter selects GD or Imagick.",
+    "browser": "Shipped module runBatch with authenticated WordPress prepare/finish endpoints, including decode, encode, output validation, download and upload. Chrome headless on a dedicated profile.",
+    "scope": "Four examples; no quality-equivalence metric or shared-hosting speed claim."
+  },
+  "photo": {
+    "author": "Hannes Röst",
+    "title": "Fronalpstock big.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:Fronalpstock_big.jpg",
+    "download": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3f/Fronalpstock_big.jpg/3840px-Fronalpstock_big.jpg",
+    "license": "CC BY-SA 3.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+    "derivatives": "Resampled the 3840px preview using PHP GD to 3000x1348 and 600x270; JPEG quality 90. Large PNG uses the 3000x1348 RGB raster with PNG compression level 6. Images are test inputs, not included in the release ZIP."
+  },
+  "small_png": "600x400 transparent artwork generated by scripts/prepare-screenshot-site.php; copied without modification."
+}

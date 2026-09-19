@@ -76,7 +76,11 @@ class ILSWQ_CLI {
 		unset( $args );
 
 		if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
-			WP_CLI::warning( __( 'This server has no WordPress image editor that can write WebP.', 'indexlane-safe-webp-queue' ) );
+			WP_CLI::warning(
+				ILSWQ_Browser::is_enabled()
+					? __( 'This server has no WordPress image editor that can write WebP. Browser conversion is enabled, so convert from the plugin page.', 'indexlane-safe-webp-queue' )
+					: __( 'This server has no WordPress image editor that can write WebP.', 'indexlane-safe-webp-queue' )
+			);
 		}
 
 		self::render( $this->status_rows(), array( 'label', 'value' ), $assoc_args );
@@ -180,7 +184,11 @@ class ILSWQ_CLI {
 		$all      = self::has_flag( $assoc_args, 'all' );
 
 		if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
-			WP_CLI::error( __( 'This server has no WordPress image editor that can write WebP.', 'indexlane-safe-webp-queue' ) );
+			WP_CLI::error(
+				ILSWQ_Browser::is_enabled()
+					? __( 'This server has no WordPress image editor that can write WebP. Browser conversion always runs from the plugin page, not from WP-CLI.', 'indexlane-safe-webp-queue' )
+					: __( 'This server has no WordPress image editor that can write WebP.', 'indexlane-safe-webp-queue' )
+			);
 		}
 
 		$ids = $this->attachment_ids( $args );
@@ -294,11 +302,21 @@ class ILSWQ_CLI {
 
 		$deleted = 0;
 		$failed  = 0;
-
-		delete_option( ILSWQ_OPTION_CLEANUP_PAGE );
+		$restart = true;
 
 		do {
-			$result   = $this->converter->cleanup_generated( 25 );
+			$result = $this->queue->run_file_mutation(
+				function () use ( $restart ) {
+					if ( $restart ) {
+						delete_option( ILSWQ_OPTION_CLEANUP_PAGE );
+					}
+					return $this->converter->cleanup_generated( 25 );
+				}
+			);
+			if ( is_wp_error( $result ) ) {
+				WP_CLI::error( $result->get_error_message() );
+			}
+			$restart  = false;
 			$deleted += isset( $result['deleted'] ) ? (int) $result['deleted'] : 0;
 			$failed  += isset( $result['failed'] ) ? (int) $result['failed'] : 0;
 
@@ -361,7 +379,14 @@ class ILSWQ_CLI {
 			$steps = 0;
 
 			do {
-				$step = ILSWQ_Totals::rebuild_step( 0 === $steps );
+				$step = $this->queue->run_file_mutation(
+					static function () use ( $steps ) {
+						return ILSWQ_Totals::rebuild_step( 0 === $steps );
+					}
+				);
+				if ( is_wp_error( $step ) ) {
+					WP_CLI::error( $step->get_error_message() );
+				}
 				++$steps;
 
 			} while ( empty( $step['done'] ) );
@@ -478,6 +503,7 @@ class ILSWQ_CLI {
 		$rows[] = self::row( __( 'Skip larger WebP files', 'indexlane-safe-webp-queue' ), ! empty( $settings['skip_larger'] ) ? __( 'Yes', 'indexlane-safe-webp-queue' ) : __( 'No', 'indexlane-safe-webp-queue' ) );
 		$rows[] = self::row( __( 'Serve WebP on the front end', 'indexlane-safe-webp-queue' ), ! empty( $settings['serve_webp'] ) ? __( 'Yes', 'indexlane-safe-webp-queue' ) : __( 'No', 'indexlane-safe-webp-queue' ) );
 		$rows[] = self::row( __( 'Convert new uploads', 'indexlane-safe-webp-queue' ), ! empty( $settings['auto_uploads'] ) ? __( 'Yes', 'indexlane-safe-webp-queue' ) : __( 'No', 'indexlane-safe-webp-queue' ) );
+		$rows[] = self::row( __( 'Browser conversion', 'indexlane-safe-webp-queue' ), ! empty( $settings['browser_conversion'] ) ? __( 'Yes', 'indexlane-safe-webp-queue' ) : __( 'No', 'indexlane-safe-webp-queue' ) );
 		$rows[] = self::row( __( 'Generated WebP files', 'indexlane-safe-webp-queue' ), (string) $totals['labels']['files'] );
 		$rows[] = self::row( __( 'Original bytes covered', 'indexlane-safe-webp-queue' ), (string) $totals['labels']['source'] );
 		$rows[] = self::row( __( 'WebP bytes stored', 'indexlane-safe-webp-queue' ), (string) $totals['labels']['webp'] );

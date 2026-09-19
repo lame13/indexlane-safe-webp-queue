@@ -93,6 +93,7 @@ class ILSWQ_Plugin {
 		add_action( 'wp_ajax_ilswq_queue_command', array( $this, 'ajax_queue_command' ) );
 		add_action( 'wp_ajax_ilswq_library_start', array( $this, 'ajax_library_start' ) );
 		add_action( 'wp_ajax_ilswq_totals_rebuild', array( $this, 'ajax_totals_rebuild' ) );
+		add_action( 'wp_ajax_ilswq_refresh_rows', array( $this, 'ajax_refresh_rows' ) );
 		add_action( ILSWQ_Queue::CRON_HOOK, array( $this->queue, 'process_scheduled' ) );
 
 		add_filter( 'wp_get_attachment_image_src', array( 'ILSWQ_Serving', 'filter_attachment_image_src' ), 10, 4 );
@@ -146,11 +147,15 @@ class ILSWQ_Plugin {
 			'ilswq-admin',
 			'ILSWQ_Admin',
 			array(
-				'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
-				'nonce'      => wp_create_nonce( 'ilswq_admin' ),
-				'settings'   => ILSWQ_Settings::get(),
-				'queue'      => $this->queue->get_public_status(),
-				'strings'    => array(
+				'ajaxUrl'      => admin_url( 'admin-ajax.php' ),
+				'nonce'        => wp_create_nonce( 'ilswq_admin' ),
+				'settings'     => ILSWQ_Settings::get(),
+				'queue'        => $this->queue->get_public_status(),
+				'browser'      => ILSWQ_Browser::admin_config(),
+				// The browser backend only replaces the queue when the server
+				// itself has no WebP writer.
+				'serverWriter' => ILSWQ_Capabilities::has_webp_writer(),
+				'strings'      => array(
 					'scanning'                  => __( 'Scanning Media Library...', 'indexlane-safe-webp-queue' ),
 					'scanComplete'              => __( 'Scan complete.', 'indexlane-safe-webp-queue' ),
 					'convertStarted'            => __( 'Conversion job started. It can safely resume after you leave this page.', 'indexlane-safe-webp-queue' ),
@@ -193,6 +198,62 @@ class ILSWQ_Plugin {
 					'validationPassed'          => __( 'All generated WebP files in the current report are valid. Validated: %d.', 'indexlane-safe-webp-queue' ),
 					/* translators: 1: validated file count, 2: invalid file count, 3: missing map count. */
 					'validationFailed'          => __( 'Validation found missing or invalid generated WebP files. Validated: %1$d. Invalid: %2$d. Missing maps: %3$d.', 'indexlane-safe-webp-queue' ),
+					'browserStart'              => __( 'Convert Selected in Browser', 'indexlane-safe-webp-queue' ),
+					/* translators: %d: browser file count. */
+					'browserStartCount'         => __( 'Convert %d Selected Files in Browser', 'indexlane-safe-webp-queue' ),
+					'browserStop'               => __( 'Stop Browser Conversion', 'indexlane-safe-webp-queue' ),
+					'browserStateOff'           => __( 'Off', 'indexlane-safe-webp-queue' ),
+					'browserStateChecking'      => __( 'Checking', 'indexlane-safe-webp-queue' ),
+					'browserChecking'           => __( 'Checking this browser and loading the WebP encoder...', 'indexlane-safe-webp-queue' ),
+					'browserRefreshFailed'      => __( 'Conversion results could not be refreshed. Run a new scan to see which files were saved.', 'indexlane-safe-webp-queue' ),
+					'browserStateReady'         => __( 'Ready', 'indexlane-safe-webp-queue' ),
+					'browserStateRunning'       => __( 'Converting', 'indexlane-safe-webp-queue' ),
+					'browserStateStopped'       => __( 'Stopped', 'indexlane-safe-webp-queue' ),
+					'browserStateFinished'      => __( 'Finished', 'indexlane-safe-webp-queue' ),
+					'browserStateUnavailable'   => __( 'Unavailable', 'indexlane-safe-webp-queue' ),
+					'browserOffNote'            => __( 'Browser conversion is off. Turn on "Convert images in the browser" in Queue Settings to convert images on this computer.', 'indexlane-safe-webp-queue' ),
+					/* translators: %s: comma separated list of missing browser features. */
+					'browserUnsupportedNote'    => __( 'This browser cannot run the converter: %s. Use a current version of Chrome, Edge, Firefox, or Safari, or convert on the server instead.', 'indexlane-safe-webp-queue' ),
+					'browserInsecureNote'       => __( 'This page is not served over HTTPS, so the browser cannot run the converter. Use the server conversion controls, or reach this site over HTTPS.', 'indexlane-safe-webp-queue' ),
+					'browserUnavailable'        => __( 'Unavailable in this browser', 'indexlane-safe-webp-queue' ),
+					/* translators: %d: browser file count. */
+					'browserSelectedCount'      => __( '%d selected files can be converted in this browser. Keep this tab open until they finish.', 'indexlane-safe-webp-queue' ),
+					'browserSelectedNone'       => __( 'No selected file can be converted in this browser. Scan the library and select rows with eligible images.', 'indexlane-safe-webp-queue' ),
+					'browserQueueBusy'          => __( 'A server conversion job is running. Pause or finish it before converting in the browser.', 'indexlane-safe-webp-queue' ),
+					/* translators: %d: browser file count. */
+					'browserConfirm'            => __( 'Convert %d files in this browser? This computer does the encoding, and closing the tab stops the remaining files.', 'indexlane-safe-webp-queue' ),
+					'browserStarted'            => __( 'Browser conversion started. Keep this tab open until it finishes.', 'indexlane-safe-webp-queue' ),
+					/* translators: 1: converted file count, 2: skipped file count, 3: failed file count. */
+					'browserComplete'           => __( 'Browser conversion finished. Converted: %1$d. Skipped: %2$d. Failed: %3$d.', 'indexlane-safe-webp-queue' ),
+					/* translators: 1: finished file count, 2: remaining file count. */
+					'browserStopped'            => __( 'Browser conversion stopped after %1$d of %2$d files. Finished files stay in place.', 'indexlane-safe-webp-queue' ),
+					'browserSessionExpired'     => __( 'Your session or REST nonce expired. Reload the admin page and run the conversion again.', 'indexlane-safe-webp-queue' ),
+					/* translators: %s: error message. */
+					'browserImportFailed'       => __( 'The browser conversion module could not be loaded: %s', 'indexlane-safe-webp-queue' ),
+					/* translators: 1: current file number, 2: total file count, 3: current step. */
+					'browserProgress'           => __( 'File %1$d of %2$d: %3$s', 'indexlane-safe-webp-queue' ),
+					/* translators: 1: current file number, 2: total file count, 3: converted count, 4: skipped count, 5: failed count. */
+					'browserProgressDone'       => __( 'File %1$d of %2$d: %3$d converted, %4$d skipped, %5$d failed', 'indexlane-safe-webp-queue' ),
+					'browserStepPreparing'      => __( 'asking the server for the source image', 'indexlane-safe-webp-queue' ),
+					'browserStepDownloading'    => __( 'downloading the source image', 'indexlane-safe-webp-queue' ),
+					'browserStepEncoding'       => __( 'encoding WebP on this computer', 'indexlane-safe-webp-queue' ),
+					'browserStepUploading'      => __( 'saving the WebP file', 'indexlane-safe-webp-queue' ),
+					/* translators: 1: saved percentage, 2: source size, 3: WebP size. */
+					'browserOutcomeSaved'       => __( 'saved %1$s (%2$s to %3$s)', 'indexlane-safe-webp-queue' ),
+					'browserOutcomeAlready'     => __( 'already converted', 'indexlane-safe-webp-queue' ),
+					/* translators: %s: reason the file was left alone. */
+					'browserOutcomeSkipped'     => __( 'skipped: %s', 'indexlane-safe-webp-queue' ),
+					/* translators: %s: failure message. */
+					'browserOutcomeFailed'      => __( 'failed: %s', 'indexlane-safe-webp-queue' ),
+					/* translators: %s: saved byte total, such as "4.2 MB". */
+					'browserSavedTotal'         => __( 'This browser session saved %s.', 'indexlane-safe-webp-queue' ),
+					'browserRefreshing'         => __( 'Refreshing the report for the converted images...', 'indexlane-safe-webp-queue' ),
+					/* translators: %s: error message from the browser conversion run. */
+					'browserRunFailed'          => __( 'Browser conversion stopped: %s', 'indexlane-safe-webp-queue' ),
+					/* translators: %s: browser file size, such as "98 KB". */
+					'browserSizeFrom'           => __( '%s source', 'indexlane-safe-webp-queue' ),
+					/* translators: %s: browser file size, such as "37 KB". */
+					'browserSizeTo'             => __( '%s WebP', 'indexlane-safe-webp-queue' ),
 				),
 				'csvHeaders' => array(
 					__( 'Attachment ID', 'indexlane-safe-webp-queue' ),
@@ -227,11 +288,15 @@ class ILSWQ_Plugin {
 		$checks       = ILSWQ_Capabilities::get_checks();
 		$queue_status = $this->queue->get_public_status();
 		$totals       = ILSWQ_Totals::summary();
+
+		$server_writer    = ILSWQ_Capabilities::has_webp_writer();
+		$browser_enabled  = ILSWQ_Browser::is_enabled();
+		$server_only_note = __( 'This hosting cannot create WebP through WordPress. Enable browser conversion in Queue Settings to use this computer instead.', 'indexlane-safe-webp-queue' );
 		?>
 		<div class="wrap ilswq-wrap">
 			<h1><?php esc_html_e( 'IndexLane Safe WebP Queue', 'indexlane-safe-webp-queue' ); ?></h1>
 			<p class="ilswq-lede">
-				<?php esc_html_e( 'Give your images a lighter WebP version while keeping your originals. Scan your Media Library, choose what to convert, and see the size savings for each image.', 'indexlane-safe-webp-queue' ); ?>
+				<?php esc_html_e( 'Create WebP copies on your hosting or in your browser, even if your host cannot convert images. Keep your originals, check the savings, and choose when to serve WebP.', 'indexlane-safe-webp-queue' ); ?>
 			</p>
 			<p class="ilswq-lede">
 				<?php esc_html_e( 'Ready to use WebP on your site? Enable frontend serving in Settings. It uses matching WebP copies in normal WordPress image output; your saved content and attachment URLs stay unchanged.', 'indexlane-safe-webp-queue' ); ?>
@@ -284,8 +349,15 @@ class ILSWQ_Plugin {
 							<input type="checkbox" name="auto_uploads" value="1" <?php checked( $settings['auto_uploads'], 1 ); ?>>
 							<span><?php esc_html_e( 'Generate WebP for new uploads', 'indexlane-safe-webp-queue' ); ?></span>
 						</label>
+						<label class="ilswq-checkbox">
+							<input type="checkbox" name="browser_conversion" value="1" <?php checked( $settings['browser_conversion'], 1 ); ?>>
+							<span><?php esc_html_e( 'Convert images in the browser', 'indexlane-safe-webp-queue' ); ?></span>
+						</label>
 						<button type="submit" class="button"><?php esc_html_e( 'Save Settings', 'indexlane-safe-webp-queue' ); ?></button>
 					</form>
+					<p class="description ilswq-settings-note">
+						<?php esc_html_e( 'Hosting cannot create WebP? Enable browser conversion to use this computer instead. Nothing to install and no image service to connect. Use a current browser over HTTPS (or localhost), and keep this page open while it converts.', 'indexlane-safe-webp-queue' ); ?>
+					</p>
 				</section>
 			</div>
 
@@ -333,7 +405,7 @@ class ILSWQ_Plugin {
 					<span id="ilswq-queue-state" class="ilswq-status is-<?php echo esc_attr( $queue_status['state'] ); ?>"><?php echo esc_html( $queue_status['state_label'] ); ?></span>
 				</div>
 
-				<div class="ilswq-progress-bar ilswq-queue-progress" role="progressbar" aria-label="<?php esc_attr_e( 'Conversion job progress', 'indexlane-safe-webp-queue' ); ?>" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<?php echo esc_attr( $queue_status['progress'] ); ?>">
+				<div class="ilswq-progress-bar ilswq-queue-progress" id="ilswq-queue-progress" role="progressbar" aria-label="<?php esc_attr_e( 'Conversion job progress', 'indexlane-safe-webp-queue' ); ?>" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<?php echo esc_attr( $queue_status['progress'] ); ?>">
 					<span style="width: <?php echo esc_attr( $queue_status['progress'] ); ?>%"></span>
 				</div>
 
@@ -400,8 +472,8 @@ class ILSWQ_Plugin {
 						<button type="button" class="button" id="ilswq-resume" disabled><?php esc_html_e( 'Resume Scan', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-pause" disabled><?php esc_html_e( 'Pause Scan', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-stop" disabled><?php esc_html_e( 'Stop Scan', 'indexlane-safe-webp-queue' ); ?></button>
-						<button type="button" class="button" id="ilswq-convert" disabled><?php esc_html_e( 'Convert Selected', 'indexlane-safe-webp-queue' ); ?></button>
-						<button type="button" class="button" id="ilswq-library" disabled><?php esc_html_e( 'Convert Entire Library', 'indexlane-safe-webp-queue' ); ?></button>
+						<button type="button" class="button" id="ilswq-convert" disabled<?php if ( ! $server_writer ) : ?> title="<?php echo esc_attr( $server_only_note ); ?>"<?php endif; ?>><?php esc_html_e( 'Convert Selected', 'indexlane-safe-webp-queue' ); ?></button>
+						<button type="button" class="button" id="ilswq-library" disabled<?php if ( ! $server_writer ) : ?> title="<?php echo esc_attr( $server_only_note ); ?>"<?php endif; ?>><?php esc_html_e( 'Convert Entire Library', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-validate-webp" disabled><?php esc_html_e( 'Validate WebP', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-export" disabled><?php esc_html_e( 'Export CSV', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button ilswq-danger" id="ilswq-cleanup"><?php esc_html_e( 'Delete Generated WebPs', 'indexlane-safe-webp-queue' ); ?></button>
@@ -432,6 +504,7 @@ class ILSWQ_Plugin {
 						<button type="button" class="button" id="ilswq-search-clear" disabled><?php esc_html_e( 'Clear search', 'indexlane-safe-webp-queue' ); ?></button>
 					</div>
 					<p id="ilswq-search-help" class="description"><?php esc_html_e( 'Find images by filename, title, or attachment ID. Convert Selected and Export CSV use only the results shown below.', 'indexlane-safe-webp-queue' ); ?></p>
+					<p class="description"><?php esc_html_e( 'Savings compare only the source sizes that have a WebP copy. Sizes without a copy are not counted as savings.', 'indexlane-safe-webp-queue' ); ?></p>
 					<p id="ilswq-report-count" class="description" role="status" hidden></p>
 				</div>
 
@@ -471,6 +544,36 @@ class ILSWQ_Plugin {
 						</tbody>
 					</table>
 				</div>
+			</section>
+
+			<section class="ilswq-panel ilswq-browser-panel" id="ilswq-browser-panel" aria-labelledby="ilswq-browser-title">
+				<div class="ilswq-queue-heading">
+					<div>
+						<h2 id="ilswq-browser-title"><?php esc_html_e( 'Browser Conversion (WebAssembly)', 'indexlane-safe-webp-queue' ); ?></h2>
+						<p>
+							<?php esc_html_e( 'Convert the images selected above using this computer. Your browser downloads each source from your site and sends back a finished WebP copy. The encoder is included in the plugin; your images never go to a conversion service.', 'indexlane-safe-webp-queue' ); ?>
+						</p>
+					</div>
+					<span id="ilswq-browser-state" class="ilswq-status"><?php echo esc_html( $browser_enabled ? __( 'Ready', 'indexlane-safe-webp-queue' ) : __( 'Off', 'indexlane-safe-webp-queue' ) ); ?></span>
+				</div>
+
+				<p id="ilswq-browser-support" class="ilswq-muted ilswq-browser-support"<?php if ( ! $browser_enabled ) : ?> hidden<?php endif; ?>></p>
+
+				<div class="ilswq-queue-actions">
+					<button type="button" class="button button-primary" id="ilswq-browser-start" disabled><?php esc_html_e( 'Convert Selected in Browser', 'indexlane-safe-webp-queue' ); ?></button>
+					<button type="button" class="button" id="ilswq-browser-stop" disabled><?php esc_html_e( 'Stop Browser Conversion', 'indexlane-safe-webp-queue' ); ?></button>
+				</div>
+
+				<div id="ilswq-browser-progress" class="ilswq-progress ilswq-browser-progress" hidden>
+					<div class="ilswq-progress-bar ilswq-browser-progress-bar" role="progressbar" aria-label="<?php esc_attr_e( 'Browser conversion progress', 'indexlane-safe-webp-queue' ); ?>" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+						<span></span>
+					</div>
+					<p id="ilswq-browser-progress-text" aria-live="polite"></p>
+				</div>
+
+				<ul id="ilswq-browser-log" class="ilswq-browser-log" aria-live="polite"<?php if ( ! $browser_enabled ) : ?> hidden<?php endif; ?>></ul>
+
+				<p class="ilswq-muted ilswq-queue-consequence"><?php esc_html_e( 'Keep this tab open while converting. Closing it stops the remaining work; completed files stay saved. Convert Entire Library and automatic new-upload conversion need a server WebP writer because they run in the background.', 'indexlane-safe-webp-queue' ); ?></p>
 			</section>
 		</div>
 		<?php
@@ -520,7 +623,6 @@ class ILSWQ_Plugin {
 	public function ajax_convert() {
 		$this->verify_ajax();
 		check_ajax_referer( 'ilswq_admin', 'nonce' );
-		$this->verify_queue_idle_for_file_mutation();
 
 		$raw_ids = isset( $_POST['ids'] ) && is_array( $_POST['ids'] ) ? map_deep( wp_unslash( $_POST['ids'] ), 'sanitize_text_field' ) : array();
 		$ids     = array();
@@ -535,11 +637,12 @@ class ILSWQ_Plugin {
 		$settings     = ILSWQ_Settings::from_request( $raw_settings );
 		$ids          = array_slice( $ids, 0, (int) $settings['batch_size'] );
 
-		wp_send_json_success(
-			array(
-				'rows' => $this->converter->convert_batch( $ids, $settings ),
-			)
+		$result = $this->run_file_mutation(
+			function () use ( $ids, $settings ) {
+				return array( 'rows' => $this->converter->convert_batch( $ids, $settings ) );
+			}
 		);
+		wp_send_json_success( $result );
 	}
 
 	/**
@@ -586,11 +689,49 @@ class ILSWQ_Plugin {
 	public function ajax_totals_rebuild() {
 		$this->verify_ajax();
 		check_ajax_referer( 'ilswq_admin', 'nonce' );
-		$this->verify_queue_idle_for_file_mutation();
 
 		$restart = isset( $_POST['restart'] ) && is_scalar( $_POST['restart'] ) ? absint( sanitize_text_field( wp_unslash( $_POST['restart'] ) ) ) : 0;
 
-		wp_send_json_success( ILSWQ_Totals::rebuild_step( $restart > 0 ) );
+		$result = $this->run_file_mutation(
+			static function () use ( $restart ) {
+				return ILSWQ_Totals::rebuild_step( $restart > 0 );
+			}
+		);
+		wp_send_json_success( $result );
+	}
+
+	/**
+	 * Re-scan a bounded set of attachments and return fresh report rows.
+	 *
+	 * The browser backend writes files the report cannot see until it is
+	 * refreshed, and this keeps that refresh to small, bounded requests.
+	 *
+	 * @return void
+	 */
+	public function ajax_refresh_rows() {
+		$this->verify_ajax();
+		check_ajax_referer( 'ilswq_admin', 'nonce' );
+
+		$raw_ids = isset( $_POST['ids'] ) && is_array( $_POST['ids'] ) ? map_deep( wp_unslash( $_POST['ids'] ), 'sanitize_text_field' ) : array();
+		$ids     = array();
+		foreach ( $raw_ids as $raw_id ) {
+			if ( is_scalar( $raw_id ) ) {
+				$ids[] = absint( $raw_id );
+			}
+		}
+		$ids = array_slice( array_values( array_unique( array_filter( $ids ) ) ), 0, 10 );
+
+		$settings = ILSWQ_Settings::get();
+		$rows     = array();
+		foreach ( $ids as $attachment_id ) {
+			$rows[] = $this->scanner->scan_attachment( $attachment_id, $settings );
+		}
+
+		wp_send_json_success(
+			array(
+				'rows' => $rows,
+			)
+		);
 	}
 
 	/**
@@ -660,14 +801,17 @@ class ILSWQ_Plugin {
 	public function ajax_cleanup() {
 		$this->verify_ajax();
 		check_ajax_referer( 'ilswq_admin', 'nonce' );
-		$this->verify_queue_idle_for_file_mutation();
 
 		$reset = isset( $_POST['reset'] ) && is_scalar( $_POST['reset'] ) ? absint( sanitize_text_field( wp_unslash( $_POST['reset'] ) ) ) : 0;
-		if ( $reset > 0 ) {
-			delete_option( ILSWQ_OPTION_CLEANUP_PAGE );
-		}
-
-		wp_send_json_success( $this->converter->cleanup_generated( 10 ) );
+		$result = $this->run_file_mutation(
+			function () use ( $reset ) {
+				if ( $reset > 0 ) {
+					delete_option( ILSWQ_OPTION_CLEANUP_PAGE );
+				}
+				return $this->converter->cleanup_generated( 10 );
+			}
+		);
+		wp_send_json_success( $result );
 	}
 
 	/**
@@ -776,7 +920,7 @@ class ILSWQ_Plugin {
 			}
 
 			$settings = ILSWQ_Settings::get();
-			if ( ! empty( $settings['auto_uploads'] ) ) {
+			if ( ! empty( $settings['auto_uploads'] ) && ILSWQ_Capabilities::has_webp_writer() ) {
 				$queued = $this->queue->enqueue_upload( (int) $attachment_id, $settings );
 				if ( is_wp_error( $queued ) ) {
 					update_post_meta( (int) $attachment_id, ILSWQ_META_LAST_ERROR, $queued->get_error_message() );
@@ -827,21 +971,18 @@ class ILSWQ_Plugin {
 	}
 
 	/**
-	 * Prevent legacy conversion or cleanup from racing persistent workers.
+	 * Serialize direct mutations and report conflicts after releasing the lock.
 	 *
-	 * @return void
+	 * @param callable $callback Bounded synchronous operation.
+	 * @return mixed Operation result.
 	 */
-	private function verify_queue_idle_for_file_mutation() {
-		if ( ! $this->queue->has_active_job() && ! $this->queue->has_automatic_work() ) {
-			return;
+	private function run_file_mutation( $callback ) {
+		$result = $this->queue->run_file_mutation( $callback );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( array( 'message' => $result->get_error_message() ), 409 );
 		}
 
-		wp_send_json_error(
-			array(
-				'message' => __( 'Pause or finish queued conversion work before deleting or directly converting generated files.', 'indexlane-safe-webp-queue' ),
-			),
-			409
-		);
+		return $result;
 	}
 
 	/**

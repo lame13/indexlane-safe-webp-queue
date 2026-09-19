@@ -2,6 +2,10 @@
 	max-width: 1440px;
 }
 
+.ilswq-wrap [hidden] {
+	display: none !important;
+}
+
 .ilswq-lede {
 	max-width: 820px;
 	color: #3c434a;
@@ -90,6 +94,10 @@
 	font-weight: 400;
 }
 
+.ilswq-settings-note {
+	margin: 12px 0 0;
+}
+
 .ilswq-report-panel {
 	padding: 0;
 }
@@ -128,6 +136,73 @@
 
 .ilswq-queue-consequence {
 	margin-top: 10px;
+}
+
+.ilswq-browser-panel {
+	margin: 18px 0 0;
+}
+
+.ilswq-browser-panel h2 {
+	margin-bottom: 4px;
+}
+
+.ilswq-browser-panel p {
+	max-width: 900px;
+}
+
+.ilswq-browser-support {
+	margin: 12px 0 0;
+}
+
+.ilswq-browser-progress {
+	padding: 12px 0 0;
+}
+
+.ilswq-browser-progress-bar {
+	margin: 14px 0 10px;
+}
+
+.ilswq-browser-log {
+	margin: 12px 0 0;
+	padding: 0;
+	max-height: 260px;
+	overflow-y: auto;
+	list-style: none;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	background: #fff;
+}
+
+.ilswq-browser-log-item {
+	margin: 0;
+	padding: 8px 10px;
+	border-left: 4px solid #dcdcde;
+	border-bottom: 1px solid #f0f0f1;
+	font-family: Menlo, Consolas, Monaco, monospace;
+	font-size: 12px;
+	line-height: 1.6;
+	word-break: break-word;
+}
+
+.ilswq-browser-log:empty {
+	display: none;
+}
+
+.ilswq-browser-log-item:last-child {
+	border-bottom: 0;
+}
+
+.ilswq-browser-log-item.is-converted {
+	border-left-color: #008a20;
+}
+
+.ilswq-browser-log-item.is-skipped {
+	border-left-color: #dba617;
+}
+
+.ilswq-browser-log-item.is-failed {
+	border-left-color: #d63638;
+	color: #b32d2e;
 }
 
 .ilswq-queue-error {

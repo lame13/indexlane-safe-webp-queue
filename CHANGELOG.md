@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.0 - 2026-09-19
+
+- Added browser (WebAssembly) conversion. A WebP encoder compiled to WebAssembly ships with the plugin and runs in the administrator's browser, so images on hosts whose image editor cannot write WebP are still convertible. Nothing is installed on the machine and no service is contacted; only the finished WebP file returns to the site.
+- Added a browser conversion panel to the plugin page: capability detection that names the missing browser feature, HTTPS and Content Security Policy checks, a per-file progress bar, a running result log, a stop control, and a report refresh when the run ends.
+- Added the "Convert images in the browser" setting, off by default, plus a browser conversion row in the server checks and a report reason and editor label for files that only the browser can convert.
+- Routed browser output through the same staging, ownership, conflict, totals and generated-map code as the local image editor backends, so a browser conversion is indistinguishable from a server conversion afterwards, including frontend serving.
+- Kept the persistent queue honest on hosts without a WebP writer: conversion jobs, whole-library jobs and automatic new-upload conversion are refused with a clear message instead of failing attachment by attachment, and browser-only files are reported as skipped rather than failed.
+- Blocked a browser run while a server conversion job holds the queue, and suspended the page's queue worker while a browser run is in progress, so the two backends never write the same attachment at the same time.
+- Added `tests/browser-wordpress.php`: integration coverage for capability routing, the REST prepare/finish handshake, container validation, replay, changed sources, foreign sibling files, cross-user tokens, WebP validation, stored metadata, totals and cleanup.
+- Added a CI job that type checks the WebAssembly module, rebuilds the committed bundle, compares it with the shipped files and confirms the bundled codec licences.
+
+- Fixed server conversion ignoring the selected quality when WordPress changes the output format to WebP.
+- Fixed stale browser results after quality changes, damaged outputs, or a replaced attachment source; browser saves recheck the current source and settings.
+- Serialized cleanup, totals recalculation, and browser saves with the server queue, kept conflicting controls disabled during a browser run, and allowed conversion after a server job is paused.
+- Added a real worker/codec capability probe, useful server error messages, bounded uploads, and EXIF rotation/mirror rejection before decoding.
+- Corrected encoder labels and savings for partially converted attachments, and applied memory limits to regeneration too.
+- Stopped automatic uploads from retrying browser-only images.
+- Verified WordPress 7.1.1 with GD, Imagick, WP-CLI, and the browser backend regressions; updated the CI matrix.
+- Added measured size and speed comparisons for large/small JPEG and PNG files using Chrome, GD, and Imagick at quality 80.
+- Rewrote the description for shared-hosting users and refreshed six screenshots, including a live WebAssembly conversion.
+- Tested browser WebAssembly conversion in Google Chrome 153.0.8010.52 on WordPress 7.1.1 and real Safari 26.6.2 on WordPress 7.1 (macOS), covering JPEGs, transparent PNGs, generated sizes, saved results, and larger-output skips.
+
 ## 0.3.0 - 2026-09-15
 
 - Added whole-library background conversion with bounded batches, attachment ID cursors, pause/resume/cancel, and retries that remain available after large failure counts.

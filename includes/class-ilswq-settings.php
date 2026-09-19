@@ -22,13 +22,14 @@ class ILSWQ_Settings {
 	 */
 	public static function defaults() {
 		return array(
-			'batch_size'   => 3,
-			'max_pixels'   => 16000000,
-			'jpeg_quality' => 82,
-			'png_quality'  => 90,
-			'skip_larger'  => 1,
-			'serve_webp'   => 0,
-			'auto_uploads' => 0,
+			'batch_size'         => 3,
+			'max_pixels'         => 16000000,
+			'jpeg_quality'       => 82,
+			'png_quality'        => 90,
+			'skip_larger'        => 1,
+			'serve_webp'         => 0,
+			'auto_uploads'       => 0,
+			'browser_conversion' => 0,
 		);
 	}
 
@@ -64,6 +65,10 @@ class ILSWQ_Settings {
 			$raw['auto_uploads'] = 0;
 		}
 
+		if ( ! isset( $raw['browser_conversion'] ) ) {
+			$raw['browser_conversion'] = 0;
+		}
+
 		return self::sanitize( $raw );
 	}
 
@@ -88,18 +93,20 @@ class ILSWQ_Settings {
 		$png_quality = absint( self::scalar_or_default( $settings, 'png_quality', $defaults['png_quality'] ) );
 		$png_quality = max( 1, min( 100, $png_quality ) );
 
-		$skip_larger  = ! empty( self::scalar_or_default( $settings, 'skip_larger', $defaults['skip_larger'] ) );
-		$serve_webp   = ! empty( self::scalar_or_default( $settings, 'serve_webp', $defaults['serve_webp'] ) );
-		$auto_uploads = ! empty( self::scalar_or_default( $settings, 'auto_uploads', $defaults['auto_uploads'] ) );
+		$skip_larger        = ! empty( self::scalar_or_default( $settings, 'skip_larger', $defaults['skip_larger'] ) );
+		$serve_webp         = ! empty( self::scalar_or_default( $settings, 'serve_webp', $defaults['serve_webp'] ) );
+		$auto_uploads       = ! empty( self::scalar_or_default( $settings, 'auto_uploads', $defaults['auto_uploads'] ) );
+		$browser_conversion = ! empty( self::scalar_or_default( $settings, 'browser_conversion', $defaults['browser_conversion'] ) );
 
 		return array(
-			'batch_size'   => $batch_size,
-			'max_pixels'   => $max_pixels,
-			'jpeg_quality' => $jpeg_quality,
-			'png_quality'  => $png_quality,
-			'skip_larger'  => $skip_larger ? 1 : 0,
-			'serve_webp'   => $serve_webp ? 1 : 0,
-			'auto_uploads' => $auto_uploads ? 1 : 0,
+			'batch_size'         => $batch_size,
+			'max_pixels'         => $max_pixels,
+			'jpeg_quality'       => $jpeg_quality,
+			'png_quality'        => $png_quality,
+			'skip_larger'        => $skip_larger ? 1 : 0,
+			'serve_webp'         => $serve_webp ? 1 : 0,
+			'auto_uploads'       => $auto_uploads ? 1 : 0,
+			'browser_conversion' => $browser_conversion ? 1 : 0,
 		);
 	}
 

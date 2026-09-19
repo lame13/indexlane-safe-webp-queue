@@ -165,6 +165,10 @@ class ILSWQ_Queue {
 			return new WP_Error( 'ilswq_auto_invalid_id', __( 'The uploaded attachment could not be queued.', 'indexlane-safe-webp-queue' ) );
 		}
 
+		if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
+			return new WP_Error( 'ilswq_auto_no_writer', __( 'This server has no image editor that can write WebP, so new uploads cannot be converted automatically.', 'indexlane-safe-webp-queue' ) );
+		}
+
 		$queue = $this->get_auto_queue();
 		if ( ! isset( $queue[ $attachment_id ] ) && count( $queue ) >= self::MAX_AUTO_ITEMS ) {
 			return new WP_Error( 'ilswq_auto_queue_full', __( 'The automatic upload queue is full. Open the plugin page to let queued work finish.', 'indexlane-safe-webp-queue' ) );
@@ -427,6 +431,10 @@ class ILSWQ_Queue {
 			return new WP_Error( 'ilswq_queue_busy', __( 'The previous conversion batch is still finishing. Try again in a moment.', 'indexlane-safe-webp-queue' ) );
 		}
 
+		if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
+			return new WP_Error( 'ilswq_queue_no_writer', __( 'This server has no image editor that can write WebP. Use browser conversion for these images instead.', 'indexlane-safe-webp-queue' ) );
+		}
+
 		$is_library = null !== $library_total;
 		$normalized = array();
 		foreach ( is_array( $ids ) ? $ids : array() as $id ) {
@@ -622,7 +630,9 @@ class ILSWQ_Queue {
 			return;
 		}
 
-		if ( in_array( $status, array( 'skipped', 'already-exists', 'excluded' ), true ) ) {
+		// A row that is still eligible after a batch is one only the browser
+		// backend can encode, so it is skipped rather than failed.
+		if ( in_array( $status, array( 'skipped', 'already-exists', 'excluded', 'eligible' ), true ) ) {
 			++$job['skipped'];
 			delete_post_meta( $attachment_id, ILSWQ_META_LAST_ERROR );
 			return;
@@ -724,7 +734,8 @@ class ILSWQ_Queue {
 				// The generic message avoids exposing filesystem details in stored admin output.
 			}
 
-			if ( in_array( $status, array( 'converted', 'skipped', 'already-exists', 'excluded' ), true ) ) {
+			// Browser-only images stay eligible, but cannot benefit from a server retry.
+			if ( in_array( $status, array( 'converted', 'skipped', 'already-exists', 'excluded', 'eligible' ), true ) ) {
 				unset( $queue[ $key ] );
 				delete_post_meta( $attachment_id, ILSWQ_META_LAST_ERROR );
 			} elseif ( 'conflict' === $status ) {
@@ -1028,11 +1039,34 @@ class ILSWQ_Queue {
 	}
 
 	/**
+	 * Run a direct file mutation without racing queue workers or browser saves.
+	 *
+	 * @param callable $callback Bounded synchronous operation.
+	 * @return mixed|WP_Error Operation result or a busy error.
+	 */
+	public function run_file_mutation( $callback ) {
+		$token = $this->acquire_lock();
+		if ( false === $token ) {
+			return new WP_Error( 'ilswq_files_busy', __( 'Another conversion or file operation is saving changes. Wait a moment and try again.', 'indexlane-safe-webp-queue' ) );
+		}
+
+		try {
+			if ( $this->has_active_job() || $this->has_automatic_work() ) {
+				return new WP_Error( 'ilswq_queue_active', __( 'Pause or finish queued conversion work before deleting or directly converting generated files.', 'indexlane-safe-webp-queue' ) );
+			}
+
+			return call_user_func( $callback );
+		} finally {
+			$this->release_lock( $token );
+		}
+	}
+
+	/**
 	 * Acquire the short-lived queue worker lock.
 	 *
 	 * @return string|false
 	 */
-	private function acquire_lock() {
+	public function acquire_lock() {
 		$token = wp_generate_uuid4();
 		$lock  = array(
 			'token'   => $token,
@@ -1079,7 +1113,7 @@ class ILSWQ_Queue {
 	 * @param string $token Lock token.
 	 * @return void
 	 */
-	private function release_lock( $token ) {
+	public function release_lock( $token ) {
 		$lock = get_option( self::LOCK_OPTION, array() );
 		if ( is_array( $lock ) && ! empty( $lock['token'] ) && hash_equals( (string) $lock['token'], (string) $token ) ) {
 			delete_option( self::LOCK_OPTION );

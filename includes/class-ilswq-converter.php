@@ -85,11 +85,12 @@ class ILSWQ_Converter {
 			return $this->scanner->scan_attachment( $attachment_id, $settings );
 		}
 
-		$map       = ILSWQ_Scanner::get_webp_map( $attachment_id );
-		$converted = 0;
-		$skipped   = array();
-		$conflicts = array();
-		$failures  = array();
+		$map              = ILSWQ_Scanner::get_webp_map( $attachment_id );
+		$converted        = 0;
+		$skipped          = array();
+		$conflicts        = array();
+		$failures         = array();
+		$browser_required = array();
 
 		foreach ( $sources as $source ) {
 			if ( empty( $source['eligible'] ) ) {
@@ -112,12 +113,13 @@ class ILSWQ_Converter {
 				continue;
 			}
 
-			if ( ! empty( $result['entry'] ) && is_array( $result['entry'] ) ) {
-				$name     = isset( $result['entry']['name'] ) ? sanitize_key( (string) $result['entry']['name'] ) : 'full';
-				$previous = isset( $map[ $name ] ) && is_array( $map[ $name ] ) ? $map[ $name ] : array();
+			if ( ! empty( $result['browser_required'] ) ) {
+				$browser_required[] = isset( $result['reason'] ) ? (string) $result['reason'] : __( 'Convert this file in the browser.', 'indexlane-safe-webp-queue' );
+				continue;
+			}
 
-				$map[ $name ] = $result['entry'];
-				ILSWQ_Totals::record( $previous, $map[ $name ] );
+			if ( ! empty( $result['entry'] ) && is_array( $result['entry'] ) ) {
+				$map = $this->map_with_entry( $attachment_id, $map, $result['entry'] );
 				++$converted;
 			}
 		}
@@ -144,6 +146,13 @@ class ILSWQ_Converter {
 
 		if ( ! empty( $conflicts ) ) {
 			return $this->scanner->with_status( $row, 'conflict', $conflicts[0], ! empty( $row['eligible'] ) );
+		}
+
+		// Files that only the browser backend can encode keep their scanned
+		// eligibility so the report can still offer them, and the queue counts
+		// them as skipped rather than failed.
+		if ( ! empty( $browser_required ) ) {
+			return $row;
 		}
 
 		if ( 0 === $converted && ! empty( $skipped ) ) {
@@ -473,25 +482,27 @@ class ILSWQ_Converter {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	private function convert_source( $source, $settings ) {
-		$source_path = isset( $source['path'] ) ? wp_normalize_path( (string) $source['path'] ) : '';
-		if ( '' === $source_path || ! file_exists( $source_path ) ) {
-			return new WP_Error( 'ilswq_source_missing', __( 'File missing', 'indexlane-safe-webp-queue' ) );
-		}
-
-		if ( ! ILSWQ_Scanner::is_uploads_path( $source_path ) ) {
-			return new WP_Error( 'ilswq_source_outside_uploads', __( 'File is outside the uploads directory', 'indexlane-safe-webp-queue' ) );
-		}
-
-		$output_path = ILSWQ_Scanner::output_path( $source_path );
-		$owned_path  = isset( $source['existing_plugin_webp_path'] ) ? wp_normalize_path( (string) $source['existing_plugin_webp_path'] ) : '';
-		$owns_output = $output_path === $owned_path;
-
-		if ( file_exists( $output_path ) && ! $owns_output ) {
+		if ( ! empty( $source['browser_only'] ) ) {
 			return array(
-				'conflict' => true,
-				'reason'   => __( 'A sibling WebP file exists but is not owned by this plugin. Move or rename it before converting.', 'indexlane-safe-webp-queue' ),
+				'browser_required' => true,
+				'reason'           => __( 'Convert this file in the browser: it is larger than your server image tools can handle.', 'indexlane-safe-webp-queue' ),
 			);
 		}
+
+		if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
+			return array(
+				'browser_required' => true,
+				'reason'           => __( 'Convert this file in the browser: this server has no image editor that can write WebP.', 'indexlane-safe-webp-queue' ),
+			);
+		}
+
+		$target = $this->prepare_output_target( $source );
+		if ( is_wp_error( $target ) || ! empty( $target['conflict'] ) ) {
+			return $target;
+		}
+
+		$source_path = $target['source'];
+		$output_path = $target['output'];
 
 		if ( function_exists( 'wp_raise_memory_limit' ) ) {
 			wp_raise_memory_limit( 'image' );
@@ -519,7 +530,17 @@ class ILSWQ_Converter {
 			return $temporary;
 		}
 
-		$saved = $editor->save( $temporary['seed'], 'image/webp' );
+		// Core resets quality when save() changes the output MIME type. Keep the
+		// requested WebP quality in effect for this synchronous save only.
+		$webp_quality = static function ( $default_quality, $mime_type ) use ( $quality ) {
+			return 'image/webp' === $mime_type ? $quality : $default_quality;
+		};
+		add_filter( 'wp_editor_set_quality', $webp_quality, PHP_INT_MAX, 2 );
+		try {
+			$saved = $editor->save( $temporary['seed'], 'image/webp' );
+		} finally {
+			remove_filter( 'wp_editor_set_quality', $webp_quality, PHP_INT_MAX );
+		}
 		if ( is_wp_error( $saved ) ) {
 			$this->delete_temporary_output( $temporary );
 
@@ -534,6 +555,131 @@ class ILSWQ_Converter {
 		}
 
 		$this->delete_temporary_seed( $temporary );
+
+		$editor_label = false !== strpos( $editor_class, 'Imagick' ) ? 'Imagick' : 'GD';
+
+		return $this->finalize_generated_file( $source, $generated_path, $temporary, $editor_label, $settings );
+	}
+
+	/**
+	 * Install WebP bytes produced somewhere other than the server image editor.
+	 *
+	 * The browser conversion backend hands validated bytes to this method so
+	 * that install, ownership, conflict, totals and generated-map handling stay
+	 * identical to the local image editor path.
+	 *
+	 * @param int                  $attachment_id Attachment ID.
+	 * @param array<string, mixed> $source Scanned source.
+	 * @param string               $bytes WebP bytes.
+	 * @param string               $editor_label Backend label stored with the entry.
+	 * @param array<string, int>   $settings Settings.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	public function install_generated_bytes( $attachment_id, $source, $bytes, $editor_label, $settings ) {
+		$target = $this->prepare_output_target( $source );
+		if ( is_wp_error( $target ) || ! empty( $target['conflict'] ) ) {
+			return $target;
+		}
+
+		if ( ! is_string( $bytes ) || '' === $bytes ) {
+			return new WP_Error( 'ilswq_empty_output', __( 'The conversion produced no image data.', 'indexlane-safe-webp-queue' ) );
+		}
+
+		$temporary = $this->create_temporary_output( $target['output'] );
+		if ( is_wp_error( $temporary ) ) {
+			return $temporary;
+		}
+
+		// Bytes handed here were validated by the calling backend. The output is
+		// a plugin-owned temporary file inside the uploads directory.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		$written = file_put_contents( $temporary['output'], $bytes, LOCK_EX );
+		if ( strlen( $bytes ) !== $written ) {
+			$this->delete_temporary_output( $temporary );
+
+			return new WP_Error( 'ilswq_write_failed', __( 'Could not write the converted WebP file.', 'indexlane-safe-webp-queue' ) );
+		}
+
+		$this->delete_temporary_seed( $temporary );
+
+		$result = $this->finalize_generated_file( $source, $temporary['output'], $temporary, $editor_label, $settings );
+
+		if ( ! is_wp_error( $result ) && ! empty( $result['entry'] ) && is_array( $result['entry'] ) ) {
+			$map = $this->map_with_entry( absint( $attachment_id ), ILSWQ_Scanner::get_webp_map( $attachment_id ), $result['entry'] );
+			$this->save_generated_map( absint( $attachment_id ), $map );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Merge one generated entry into a map and update the stored totals.
+	 *
+	 * @param int                                  $attachment_id Attachment ID.
+	 * @param array<string, array<string, mixed>>  $map Runtime WebP map.
+	 * @param array<string, mixed>                 $entry New entry.
+	 * @return array<string, array<string, mixed>> Updated map.
+	 */
+	private function map_with_entry( $attachment_id, $map, $entry ) {
+		$name     = isset( $entry['name'] ) ? sanitize_key( (string) $entry['name'] ) : 'full';
+		$previous = isset( $map[ $name ] ) && is_array( $map[ $name ] ) ? $map[ $name ] : array();
+
+		$map[ $name ] = $entry;
+		ILSWQ_Totals::record( $previous, $map[ $name ] );
+
+		return $map;
+	}
+
+	/**
+	 * Resolve and validate the source and final output path for a conversion.
+	 *
+	 * @param array<string, mixed> $source Scanned source.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	private function prepare_output_target( $source ) {
+		$source_path = isset( $source['path'] ) ? wp_normalize_path( (string) $source['path'] ) : '';
+		if ( '' === $source_path || ! file_exists( $source_path ) ) {
+			return new WP_Error( 'ilswq_source_missing', __( 'File missing', 'indexlane-safe-webp-queue' ) );
+		}
+
+		if ( ! ILSWQ_Scanner::is_uploads_path( $source_path ) ) {
+			return new WP_Error( 'ilswq_source_outside_uploads', __( 'File is outside the uploads directory', 'indexlane-safe-webp-queue' ) );
+		}
+
+		$output_path = ILSWQ_Scanner::output_path( $source_path );
+		$owned_path  = isset( $source['existing_plugin_webp_path'] ) ? wp_normalize_path( (string) $source['existing_plugin_webp_path'] ) : '';
+		$owns_output = $output_path === $owned_path;
+
+		if ( file_exists( $output_path ) && ! $owns_output ) {
+			return array(
+				'conflict' => true,
+				'reason'   => __( 'A sibling WebP file exists but is not owned by this plugin. Move or rename it before converting.', 'indexlane-safe-webp-queue' ),
+			);
+		}
+
+		return array(
+			'source' => $source_path,
+			'output' => $output_path,
+			'owns'   => $owns_output,
+		);
+	}
+
+	/**
+	 * Validate a staged WebP file, install it and build its generated-map entry.
+	 *
+	 * @param array<string, mixed>  $source Scanned source.
+	 * @param string                $generated_path Staged WebP path.
+	 * @param array<string, string> $temporary Reserved temporary paths.
+	 * @param string                $editor_label Backend label stored with the entry.
+	 * @param array<string, int>    $settings Settings.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	private function finalize_generated_file( $source, $generated_path, $temporary, $editor_label, $settings ) {
+		$source_path = wp_normalize_path( (string) $source['path'] );
+		$output_path = ILSWQ_Scanner::output_path( $source_path );
+		$owned_path  = isset( $source['existing_plugin_webp_path'] ) ? wp_normalize_path( (string) $source['existing_plugin_webp_path'] ) : '';
+		$owns_output = $output_path === $owned_path;
+		$quality     = ILSWQ_Settings::quality_for_mime( isset( $source['mime_type'] ) ? (string) $source['mime_type'] : '', $settings );
 
 		if ( ! file_exists( $generated_path ) ) {
 			$this->delete_temporary_output( $temporary );
@@ -580,7 +726,6 @@ class ILSWQ_Converter {
 			return new WP_Error( 'ilswq_install_failed', __( 'The validated WebP file could not be found after installation.', 'indexlane-safe-webp-queue' ) );
 		}
 
-		$editor_label = false !== strpos( $editor_class, 'Imagick' ) ? 'Imagick' : 'GD';
 		$source_mtime = filemtime( $source_path );
 		$source_mtime = false === $source_mtime ? 0 : (int) $source_mtime;
 		$mime_type    = isset( $source['mime_type'] ) ? (string) $source['mime_type'] : '';

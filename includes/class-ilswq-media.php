@@ -273,6 +273,10 @@ class ILSWQ_Media {
 			return 'large';
 		}
 
+		if ( 'ilswq_queue_no_writer' === $code ) {
+			return 'no-writer';
+		}
+
 		return 'empty';
 	}
 
@@ -413,6 +417,8 @@ class ILSWQ_Media {
 				return __( 'That selection is larger than a single Media Library conversion job. Use Convert Entire Library on the plugin page instead.', 'indexlane-safe-webp-queue' );
 			case 'empty':
 				return __( 'No images were queued. The selected images may already be converted, excluded, or unsupported.', 'indexlane-safe-webp-queue' );
+			case 'no-writer':
+				return __( 'This server cannot write WebP with a local image editor. Open Tools -> IndexLane Safe WebP Queue and convert the image in your browser instead.', 'indexlane-safe-webp-queue' );
 		}
 
 		return '';

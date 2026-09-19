@@ -6,6 +6,8 @@ __MACOSX
 dist
 node_modules
 vendor
+wasm
 tests
 scripts
 wporg-assets
+benchmarks

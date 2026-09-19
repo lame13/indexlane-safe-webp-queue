@@ -1,26 +1,51 @@
 # IndexLane Safe WebP Queue
 
-**Lighter images. Your originals kept. You're in control.**
+**Smaller images, without another subscription.**
 
-Create WebP copies of your WordPress Media Library images, compare the file-size savings, and choose when to use them on your site. Your JPEGs and PNGs stay in place, and conversion runs on your own server with no cloud account or API key.
+Your hosting plan may be light on image tools. Your images don't have to stay heavy. Create WebP copies right from your WordPress admin, without paying for an image-conversion API or asking your host to install missing libraries. Keep your original JPEGs and PNGs, and choose when to serve the WebP copies.
 
-[View the plugin on IndexLane](https://indexlane.dev/plugins/safe-webp-queue)
+Shared hosting can lack WebP support or enough PHP memory for image conversion. Enable **Convert images in the browser** and your computer does the encoding with the plugin's bundled WebAssembly encoder. Each source comes from your own site; each finished WebP goes back there. There is no desktop app or browser extension to install.
+
+If WordPress has GD or Imagick with WebP support, server conversion can handle selected images, the whole library, and future uploads in background batches. The standalone `cwebp` command is not used by this version.
 
 ## Try it on a few images
 
-Open **Tools → IndexLane Safe WebP Queue**, check your server's WebP support, and select **Scan Media Library**. Choose a few eligible images, click **Convert Selected**, and review the results before working through more of your library.
+1. Open **Tools → IndexLane Safe WebP Queue** and check server support. Enable browser conversion if you need it.
+2. Scan the library and select a few images. Use **Convert Selected** for a server job or **Convert Selected in Browser** to use your computer.
+3. Review file sizes, savings, and any skip reasons. Both methods include generated attachment sizes.
+4. Enable optional frontend serving when you want matching WebP copies used in normal WordPress image output.
 
-- **Keep control of the work.** Convert attachments and their generated sizes in small batches. Progress is saved when you close the page, with pause, resume, cancel, and failed-item retry controls.
-- **Convert the whole library.** Choose **Convert Entire Library** to queue every convertible image at once and let the background job work through it in the same bounded batches.
-- **Work from the Media Library.** A WebP column shows each image's status and savings, with row actions to convert or exclude a single image and bulk actions for several at a time.
-- **Find the images that matter.** Search the report by filename, title, or attachment ID and combine search with a status filter. Conversion selection and CSV exports use the matching results.
-- **Judge the result yourself.** Compare original and WebP sizes and see why an image was skipped or failed. New WebPs that are larger than their source are skipped by default.
-- **See the savings.** Stored totals track generated files, original bytes covered, WebP bytes written, and the resulting savings, and they are rebuilt on demand from attachment metadata.
-- **Keep your originals.** Remove this plugin's WebP copies when needed. WebP files created by other tools are reported as conflicts and left alone.
-- **Choose when to go live.** Optional frontend serving uses matching copies in normal WordPress image output. Optional new-upload conversion queues future images after WordPress creates their sizes. Both settings start off.
-- **Script it.** `wp ilswq status|scan|convert|totals|queue|cleanup` covers reporting, conversion, and cleanup from the command line.
+Keep the tab open for browser conversion. Server jobs save progress and can continue through WP-Cron, which depends on site traffic or a configured cron runner. Whole-library jobs and automatic uploads need server WebP support.
 
-Background work uses WP-Cron and depends on site traffic or a configured cron runner. Your server needs a compatible WordPress image editor with GD or Imagick WebP support; server checks and memory estimates help skip files that are too demanding.
+Search and filter the report, export matching rows as CSV, or manage status and exclusions from the Media Library list. Stored totals cover both conversion methods. Originals stay in place, foreign WebPs are protected, and new copies that are not smaller are skipped by default.
+
+[Plugin details](https://indexlane.dev/plugins/safe-webp-queue) · [Full description and FAQs](readme.txt)
+
+## Measured conversion results
+
+The [plugin description](readme.txt) includes compression and timing comparisons for a large and small JPEG and PNG, measured through the actual plugin in Chrome, GD, and Imagick at quality 80. See [the benchmark record](benchmarks/README.md) for the setup, input hashes, raw samples, and limitations.
+
+## Browser conversion
+
+Browser conversion is the second conversion backend. Instead of `wp_get_image_editor()`, the administrator's browser downloads the source file from the site, encodes WebP in a Web Worker with the bundled WebAssembly codec, and uploads the finished file to a REST endpoint. The server still authorises the work, validates the returned container and writes the sidecar, so a browser conversion produces exactly the same stored metadata, savings totals and frontend output as a server conversion; only the `editor` label differs (`WASM (browser)`).
+
+It is off by default and attended: the tab has to stay open, and one image is processed at a time. It never replaces the queue for unattended work.
+
+The panel checks for module Workers, WebAssembly (including a Content Security Policy probe), `createImageBitmap`, `OffscreenCanvas`, Web Crypto, `fetch`, `AbortController` and a secure context, and reports the specific missing capability rather than failing silently.
+
+### Rebuilding the browser bundle
+
+The bundle in `assets/wasm/` is build output. Rebuild it with the pinned toolchain and copy the result back:
+
+```sh
+cd wasm
+npm ci
+npm run build
+cp dist/safewebp-browser.js ../assets/wasm/
+rsync -a --delete dist/assets/ ../assets/wasm/assets/
+```
+
+`npm run build` type checks both the DOM entry and the worker, runs the module regressions, and bundles the result. The build needs Node `^20.19.0` or `>=22.12.0`. Replace the generated assets directory so old hashed chunks cannot linger. Keep the existing `THIRD-PARTY-NOTICES/` directory and omit the bundler's `.vite/` metadata. CI rebuilds the module and compares it with the committed files, so the sources and the shipped bundle cannot drift apart.
 
 ## Know what changes
 
@@ -51,6 +76,9 @@ Install that ZIP in an isolated WordPress environment, then run:
 ```sh
 php tests/smoke-wordpress.php /path/to/wordpress
 php tests/cli-wordpress.php /path/to/wordpress
+php tests/browser-wordpress.php /path/to/wordpress
 ```
 
 The smoke test exercises JPEG and transparent PNG conversion, generated sizes, persistent queue controls and retries, whole-library jobs, exclusions, Media Library actions, stored savings totals and rebuilds, foreign WebP protection, optional frontend serving, automatic uploads, source and quality changes, and attachment cleanup. The WP-CLI test boots WordPress with a WP-CLI stand-in and runs every command. Set `ILSWQ_SMOKE_EDITOR=GD` or `ILSWQ_SMOKE_EDITOR=Imagick` to check a specific editor.
+
+The browser test covers the server side of the WebAssembly backend: capability routing on a host without a WebP writer, the REST prepare/finish handshake, WebP container validation, prepared-job ownership, changed sources, foreign sibling files, replay, stored metadata, totals, frontend serving, and cleanup. It needs GD with WebP writing to build its fixtures and exits with status 3 when that is unavailable.

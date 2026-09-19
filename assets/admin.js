@@ -13,6 +13,20 @@
 	var queueStatus = ILSWQ_Admin.queue || null;
 	var queueRequestRunning = false;
 	var queueTimer = null;
+	var browserConfig = ILSWQ_Admin.browser || null;
+	var browserEnabled = !!(browserConfig && browserConfig.enabled);
+	// wp_localize_script casts top-level scalars to strings, so compare explicitly.
+	var serverWriter = ILSWQ_Admin.serverWriter === true || ILSWQ_Admin.serverWriter === '1';
+	var browserSupport = null;
+	var browserRunning = false;
+	var browserFinished = false;
+	var browserStopped = false;
+	var browserStopRequested = false;
+	var browserController = null;
+	var browserTotals = null;
+	var browserRowIds = [];
+	var BROWSER_BATCH_LIMIT = 500;
+	var BROWSER_LOG_LIMIT = 200;
 
 	function getSettings() {
 		var $form = $('#ilswq-settings-form');
@@ -24,7 +38,8 @@
 			png_quality: parseInt($form.find('[name="png_quality"]').val(), 10) || 90,
 			skip_larger: $form.find('[name="skip_larger"]').is(':checked') ? 1 : 0,
 			serve_webp: $form.find('[name="serve_webp"]').is(':checked') ? 1 : 0,
-			auto_uploads: $form.find('[name="auto_uploads"]').is(':checked') ? 1 : 0
+			auto_uploads: $form.find('[name="auto_uploads"]').is(':checked') ? 1 : 0,
+			browser_conversion: $form.find('[name="browser_conversion"]').is(':checked') ? 1 : 0
 		};
 	}
 
@@ -48,21 +63,24 @@
 		var hasQueuedFileWork = hasActiveJob || (queueStatus && queueStatus.automatic_pending > 0);
 
 		$('#ilswq-export').prop('disabled', isBusy || !hasRows);
-		$('#ilswq-convert').prop('disabled', isBusy || hasActiveJob || !hasEligible);
+		$('#ilswq-convert').prop('disabled', isBusy || hasActiveJob || !hasEligible || !serverWriter);
 		$('#ilswq-validate-webp').prop('disabled', isBusy || !hasConverted);
+		$('#ilswq-browser-start').prop('disabled', browserStartDisabled());
+		$('#ilswq-browser-stop').prop('disabled', !browserRunning);
 		$('#ilswq-check-all')
 			.prop('disabled', isBusy || !$eligible.length)
 			.prop('checked', $eligible.length > 0 && selectedCount === $eligible.length)
 			.prop('indeterminate', selectedCount > 0 && selectedCount < $eligible.length);
 		$('#ilswq-resume').prop('disabled', isBusy || !resumeAction);
 		$('#ilswq-scan').prop('disabled', isBusy || hasActiveJob);
-		$('#ilswq-library').prop('disabled', isBusy || hasActiveJob);
+		$('#ilswq-library').prop('disabled', isBusy || hasActiveJob || !serverWriter);
 		$('#ilswq-cleanup').prop('disabled', isBusy || hasQueuedFileWork);
 		$('#ilswq-totals-rebuild').prop('disabled', isBusy || hasQueuedFileWork);
 		$('#ilswq-queue-pause').prop('disabled', isBusy || !queueStatus || !queueStatus.can_pause);
 		$('#ilswq-queue-resume').prop('disabled', isBusy || !queueStatus || !queueStatus.can_resume);
 		$('#ilswq-queue-cancel').prop('disabled', isBusy || !queueStatus || !queueStatus.can_cancel);
 		$('#ilswq-queue-retry').prop('disabled', isBusy || !queueStatus || !queueStatus.can_retry);
+		renderBrowserState();
 	}
 
 	function showNotice(message, type) {
@@ -170,7 +188,7 @@
 			.removeClass()
 			.addClass('ilswq-status is-' + state)
 			.text(queueStatus.state_label || '');
-		$('.ilswq-queue-progress')
+		$('#ilswq-queue-progress')
 			.attr('aria-valuenow', progress)
 			.find('span')
 			.css('width', progress + '%');
@@ -213,6 +231,9 @@
 
 	function scheduleQueueTick(delay) {
 		clearQueueTimer();
+		if (browserRunning) {
+			return;
+		}
 		if (!queueStatus || (!queueStatus.has_runnable_work && !queueStatus.automatic_pending)) {
 			return;
 		}
@@ -221,7 +242,7 @@
 	}
 
 	function processQueueTick() {
-		if (queueRequestRunning || !queueStatus) {
+		if (queueRequestRunning || !queueStatus || browserRunning) {
 			return;
 		}
 
@@ -634,14 +655,543 @@
 		window.URL.revokeObjectURL(url);
 	}
 
+	/**
+	 * Report which browser features the WebAssembly encoder needs.
+	 */
+	function detectBrowserSupport() {
+		var missing = [];
+
+		if (!window.isSecureContext) {
+			return { ok: false, insecure: true, missing: [] };
+		}
+
+		if (typeof window.Worker !== 'function') {
+			missing.push('Web Workers');
+		}
+
+		if (typeof window.WebAssembly === 'undefined') {
+			missing.push('WebAssembly');
+		} else {
+			try {
+				// Compiling an empty module proves the policy actually allows WASM.
+				new window.WebAssembly.Module(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
+			} catch (error) {
+				missing.push('WebAssembly (blocked by this site\'s Content Security Policy)');
+			}
+		}
+
+		if (typeof window.createImageBitmap !== 'function') {
+			missing.push('createImageBitmap');
+		}
+
+		if (typeof window.OffscreenCanvas !== 'function') {
+			missing.push('OffscreenCanvas');
+		}
+
+		if (!window.crypto || !window.crypto.subtle) {
+			missing.push('Web Crypto');
+		}
+		if (!window.crypto || typeof window.crypto.randomUUID !== 'function') {
+			missing.push('crypto.randomUUID');
+		}
+
+		if (typeof window.fetch !== 'function') {
+			missing.push('fetch');
+		}
+
+		if (typeof window.AbortController !== 'function') {
+			missing.push('AbortController');
+		}
+		if (!window.AbortSignal || typeof window.AbortSignal.prototype.throwIfAborted !== 'function') {
+			missing.push('AbortSignal.throwIfAborted');
+		}
+
+		return { ok: missing.length === 0, insecure: false, missing: missing };
+	}
+
+	function initializeBrowserSupport() {
+		browserSupport = browserEnabled ? detectBrowserSupport() : { ok: false, insecure: false, missing: [] };
+		if (!browserSupport.ok) {
+			return;
+		}
+		browserSupport.ok = false;
+		browserSupport.pending = true;
+		import(browserConfig.bundleUrl).then(function (module) {
+			return module.probeBrowserEncoder();
+		}).then(function () {
+			browserSupport = { ok: true, insecure: false, missing: [] };
+			updateButtons();
+		}).catch(function (error) {
+			browserSupport = { ok: false, insecure: false, missing: [error.message || 'Module worker / WebAssembly encoder'] };
+			updateButtons();
+		});
+	}
+
+	/**
+	 * Format a byte count for the browser conversion log.
+	 */
+	function formatBytes(bytes) {
+		var units = ['B', 'KB', 'MB', 'GB'];
+		var value = Math.max(0, parseInt(bytes, 10) || 0);
+		var index = 0;
+
+		while (value >= 1024 && index < units.length - 1) {
+			value = value / 1024;
+			index++;
+		}
+
+		return (value >= 10 || index === 0 ? Math.round(value) : Math.round(value * 10) / 10) + ' ' + units[index];
+	}
+
+	/**
+	 * Build the browser conversion list from the checked report rows.
+	 */
+	function browserSelection() {
+		var variants = [];
+		var seen = {};
+
+		$.each(getSelectedEligibleIds(), function (_, attachmentId) {
+			var row = rows[rowMap[attachmentId]];
+			var sources = row && row.browser_sources ? row.browser_sources : [];
+
+			$.each(sources, function (__, source) {
+				var name = source && source.name ? String(source.name) : '';
+				var key = attachmentId + ':' + name;
+
+				if (!name || seen[key]) {
+					return;
+				}
+
+				seen[key] = true;
+				variants.push({
+					attachmentId: parseInt(attachmentId, 10),
+					sizeKey: name,
+					file: row.file || '',
+					label: source.label || name,
+					bytes: parseInt(source.bytes, 10) || 0
+				});
+			});
+		});
+
+		return variants;
+	}
+
+	function describeVariant(variant) {
+		var file = variant && variant.file ? String(variant.file) : '';
+		var label = variant && variant.label ? String(variant.label) : '';
+		var name = variant && variant.sizeKey ? String(variant.sizeKey) : '';
+		var suffix = label && label !== 'full' ? label : name;
+
+		if (file && suffix) {
+			return file + ' (' + suffix + ')';
+		}
+
+		return file || suffix || '';
+	}
+
+	function browserStartDisabled() {
+		return isBusy ||
+			browserRunning ||
+			!browserEnabled ||
+			!browserSupport ||
+			!browserSupport.ok ||
+			!!(queueStatus && queueStatus.can_pause) ||
+			!browserSelection().length;
+	}
+
+	function setBrowserProgress(done, total, message) {
+		var percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+
+		$('#ilswq-browser-progress').prop('hidden', false);
+		$('#ilswq-browser-progress .ilswq-browser-progress-bar span').css('width', percent + '%');
+		$('#ilswq-browser-progress .ilswq-browser-progress-bar').attr('aria-valuenow', percent);
+		$('#ilswq-browser-progress-text').text(message || '');
+	}
+
+	function appendBrowserLog(message, statusKey) {
+		var $log = $('#ilswq-browser-log');
+
+		$log.prop('hidden', false);
+		$log.append($('<li class="ilswq-browser-log-item is-' + statusKey + '"></li>').text(message));
+
+		while ($log.children().length > BROWSER_LOG_LIMIT) {
+			$log.children().first().remove();
+		}
+
+		if ($log.length && $log[0]) {
+			$log[0].scrollTop = $log[0].scrollHeight;
+		}
+	}
+
+	function renderBrowserState() {
+		var strings = ILSWQ_Admin.strings;
+		var $state = $('#ilswq-browser-state');
+		var selectionCount = browserEnabled ? browserSelection().length : 0;
+		var state = 'is-skipped';
+		var label = strings.browserStateOff;
+		var note = '';
+
+		if (browserEnabled) {
+			state = 'is-eligible';
+			label = strings.browserStateReady;
+			note = selectionCount
+				? formatString(strings.browserSelectedCount, [selectionCount])
+				: strings.browserSelectedNone;
+		}
+
+		if (browserEnabled && browserSupport && browserSupport.pending) {
+			label = strings.browserStateChecking;
+			note = strings.browserChecking;
+		} else if (browserEnabled && browserSupport && !browserSupport.ok) {
+			state = 'is-failed';
+			label = strings.browserStateUnavailable;
+			note = browserSupport.insecure
+				? strings.browserInsecureNote
+				: formatString(strings.browserUnsupportedNote, [browserSupport.missing.join(', ')]);
+		} else if (browserRunning) {
+			state = 'is-running';
+			label = strings.browserStateRunning;
+		} else if (browserFinished) {
+			if (browserStopped) {
+				state = 'is-paused';
+				label = strings.browserStateStopped;
+			} else {
+				state = 'is-completed';
+				label = strings.browserStateFinished;
+			}
+		}
+		if (browserEnabled && browserSupport && browserSupport.ok && queueStatus && queueStatus.can_pause) {
+			note = strings.browserQueueBusy;
+		}
+
+		if (!browserEnabled) {
+			note = strings.browserOffNote;
+		}
+
+		$state.removeClass().addClass('ilswq-status ' + state).text(label);
+		setOptionalText('#ilswq-browser-support', note);
+		$('#ilswq-browser-start')
+			.text(selectionCount
+				? formatString(strings.browserStartCount, [selectionCount])
+				: strings.browserStart)
+			.prop('disabled', browserStartDisabled());
+		$('#ilswq-browser-stop')
+			.text(strings.browserStop)
+			.prop('disabled', !browserRunning);
+	}
+
+	function recordBrowserOutcome(outcome, fallbackVariant) {
+		var strings = ILSWQ_Admin.strings;
+		var variant = fallbackVariant || (outcome && outcome.variant) || {};
+		var entry = describeVariant(variant);
+		var result = (outcome && outcome.result) || {};
+		var inputBytes = parseInt(result.inputBytes, 10) || 0;
+		var outputBytes = parseInt(result.outputBytes, 10) || 0;
+
+		if (!outcome || outcome.status !== 'completed') {
+			browserTotals.failed++;
+			appendBrowserLog(entry + ': ' + formatString(strings.browserOutcomeFailed, [outcome && outcome.message ? outcome.message : '']), 'failed');
+			return;
+		}
+
+		if (result.status === 'skipped_not_smaller') {
+			browserTotals.skipped++;
+			appendBrowserLog(entry + ': ' + formatString(strings.browserOutcomeSkipped, [result.reason || '']), 'skipped');
+			return;
+		}
+
+		if (result.editor) {
+			browserTotals.skipped++;
+			appendBrowserLog(entry + ': ' + strings.browserOutcomeAlready, 'converted');
+			return;
+		}
+
+		if (inputBytes > 0 && outputBytes > 0) {
+			browserTotals.savedBytes += Math.max(0, inputBytes - outputBytes);
+		}
+
+		browserTotals.converted++;
+		appendBrowserLog(
+			entry + ': ' + formatString(strings.browserOutcomeSaved, [
+				(inputBytes > 0 && outputBytes > 0 ? Math.round(((inputBytes - outputBytes) / inputBytes) * 100) : 0) + '%',
+				formatString(strings.browserSizeFrom, [formatBytes(inputBytes)]),
+				formatString(strings.browserSizeTo, [formatBytes(outputBytes)])
+			]),
+			'converted'
+		);
+	}
+
+	function browserPhaseLabel(phase) {
+		var strings = ILSWQ_Admin.strings;
+
+		if (phase === 'preparing') {
+			return strings.browserStepPreparing;
+		}
+
+		if (phase === 'downloading') {
+			return strings.browserStepDownloading;
+		}
+
+		if (phase === 'encoding') {
+			return strings.browserStepEncoding;
+		}
+
+		if (phase === 'uploading') {
+			return strings.browserStepUploading;
+		}
+
+		return '';
+	}
+
+	function handleBrowserProgress(event, chunk, offset, total) {
+		var variant = chunk[event.index] || (event && event.variant) || {};
+		var position = offset + event.index;
+
+		if (event.phase) {
+			setBrowserProgress(position, total, formatString(ILSWQ_Admin.strings.browserProgress, [
+				position + 1,
+				total,
+				browserPhaseLabel(event.phase) + ' — ' + describeVariant(variant)
+			]));
+			return;
+		}
+
+		if (event.outcome) {
+			recordBrowserOutcome(event.outcome, variant);
+			browserTotals.done = position + 1;
+			setBrowserProgress(position + 1, total, formatString(ILSWQ_Admin.strings.browserProgressDone, [
+				Math.min(position + 1, total),
+				total,
+				browserTotals.converted,
+				browserTotals.skipped,
+				browserTotals.failed
+			]));
+		}
+	}
+
+	function runBrowserChunks(module, variants, offset) {
+		if (offset >= variants.length) {
+			return Promise.resolve();
+		}
+
+		var chunk = variants.slice(offset, offset + BROWSER_BATCH_LIMIT);
+		var total = variants.length;
+
+		return module.runBatch(
+			{
+				prepareUrl: browserConfig.prepareUrl,
+				finishUrl: browserConfig.finishUrl,
+				nonce: browserConfig.nonce
+			},
+			chunk.map(function (variant) {
+				return { attachmentId: variant.attachmentId, sizeKey: variant.sizeKey };
+			}),
+			function (event) {
+				handleBrowserProgress(event, chunk, offset, total);
+			},
+			browserController ? browserController.signal : undefined
+		).then(function () {
+			return runBrowserChunks(module, variants, offset + BROWSER_BATCH_LIMIT);
+		});
+	}
+
+	function refreshBrowserRows(ids, done) {
+		if (!ids.length) {
+			done();
+			return;
+		}
+
+		ajax('ilswq_refresh_rows', { ids: ids.slice(0, 10) }).then(function (data) {
+			if (data.rows && data.rows.length) {
+				upsertRows(data.rows);
+			}
+			refreshBrowserRows(ids.slice(10), done);
+		}).fail(function () {
+			showNotice(ILSWQ_Admin.strings.browserRefreshFailed, 'error');
+			done();
+		});
+	}
+
+	function finishBrowserRun() {
+		var finalText = formatString(ILSWQ_Admin.strings.browserProgressDone, [
+			browserTotals.done,
+			browserTotals.total,
+			browserTotals.converted,
+			browserTotals.skipped,
+			browserTotals.failed
+		]);
+
+		browserRunning = false;
+		browserFinished = true;
+		browserController = null;
+		renderBrowserState();
+		updateButtons();
+
+		setBrowserProgress(browserTotals.done, browserTotals.total, finalText);
+
+		if (!browserRowIds.length) {
+			setBusy(false);
+			scheduleQueueTick(200);
+			return;
+		}
+
+		$('#ilswq-browser-progress-text').text(ILSWQ_Admin.strings.browserRefreshing);
+
+		var ids = browserRowIds.slice();
+		browserRowIds = [];
+		refreshBrowserRows(ids, function () {
+			$('#ilswq-browser-progress-text').text(finalText);
+			setBrowserProgress(browserTotals.done, browserTotals.total, finalText);
+			setBusy(false);
+			// Browser conversion records savings server side, so the totals
+			// panel needs the same refresh the queue would have triggered.
+			refreshQueueStatus(5000);
+		});
+	}
+
+	function failBrowserRun(message) {
+		showNotice(message, 'error');
+		finishBrowserRun();
+	}
+
+	function startBrowserConversion() {
+		var strings = ILSWQ_Admin.strings;
+
+		if (isBusy || browserRunning) {
+			return;
+		}
+
+		if (!browserEnabled || !browserSupport || !browserSupport.ok) {
+			showNotice(strings.browserSelectedNone, 'error');
+			return;
+		}
+
+		if (queueStatus && queueStatus.can_pause) {
+			showNotice(strings.browserQueueBusy, 'error');
+			return;
+		}
+
+		var variants = browserSelection();
+		if (!variants.length) {
+			showNotice(strings.browserSelectedNone, 'error');
+			return;
+		}
+
+		if (window.confirm && !window.confirm(formatString(strings.browserConfirm, [variants.length]))) {
+			return;
+		}
+
+		clearNotice();
+		clearQueueTimer();
+		browserRunning = true;
+		setBusy(true);
+		browserFinished = false;
+		browserStopped = false;
+		browserStopRequested = false;
+		browserController = new window.AbortController();
+		browserTotals = {
+			converted: 0,
+			skipped: 0,
+			failed: 0,
+			savedBytes: 0,
+			done: 0,
+			total: variants.length
+		};
+		browserRowIds = [];
+
+		var seen = {};
+		$.each(variants, function (_, variant) {
+			if (!seen[variant.attachmentId]) {
+				seen[variant.attachmentId] = true;
+				browserRowIds.push(variant.attachmentId);
+			}
+		});
+
+		$('#ilswq-browser-log').empty();
+		setBrowserProgress(0, variants.length, formatString(strings.browserProgress, [1, variants.length, describeVariant(variants[0])]));
+		renderBrowserState();
+		updateButtons();
+		showNotice(strings.browserStarted, 'success');
+
+		var imported = false;
+		var settingsSaved = false;
+
+		// Apply the visible form values, as the server conversion controls do.
+		Promise.resolve(ajax('ilswq_save_settings', { settings: getSettings() })).then(function () {
+			settingsSaved = true;
+			return import(browserConfig.bundleUrl);
+		}).then(function (module) {
+			imported = true;
+
+			return runBrowserChunks(module, variants, 0);
+		}).then(function () {
+			var totals = browserTotals;
+			var message = formatString(strings.browserComplete, [totals.converted, totals.skipped, totals.failed]);
+
+			if (totals.savedBytes > 0) {
+				message += ' ' + formatString(strings.browserSavedTotal, [formatBytes(totals.savedBytes)]);
+			}
+
+			browserStopped = false;
+			showNotice(message, totals.failed ? 'error' : 'success');
+			finishBrowserRun();
+		}).catch(function (error) {
+			var message = error && error.message ? String(error.message) : String(error || '');
+
+			if (browserStopRequested || (error && error.name === 'AbortError')) {
+				browserStopped = true;
+				showNotice(formatString(strings.browserStopped, [browserTotals.done, variants.length]), 'success');
+				finishBrowserRun();
+				return;
+			}
+
+			if (!settingsSaved) {
+				browserStopped = true;
+				failBrowserRun(message);
+				return;
+			}
+
+			if (!imported) {
+				browserStopped = true;
+				failBrowserRun(formatString(strings.browserImportFailed, [message]));
+				return;
+			}
+
+			if (/nonce|session|401|403/i.test(message)) {
+				browserStopped = true;
+				failBrowserRun(strings.browserSessionExpired);
+				return;
+			}
+
+			browserStopped = true;
+			failBrowserRun(formatString(strings.browserRunFailed, [message]));
+		});
+	}
+
+	function stopBrowserConversion() {
+		if (!browserRunning || !browserController) {
+			return;
+		}
+
+		browserStopRequested = true;
+		browserController.abort();
+	}
+
 	$('#ilswq-settings-form').on('submit', function (event) {
 		event.preventDefault();
 		clearNotice();
 		setBusy(true);
 
+		var nextBrowserEnabled = getSettings().browser_conversion === 1;
+
 		ajax('ilswq_save_settings', {
 			settings: getSettings()
 		}).then(function () {
+			if (nextBrowserEnabled !== browserEnabled && window.location && typeof window.location.reload === 'function') {
+				window.location.reload();
+				return;
+			}
+
 			showNotice(ILSWQ_Admin.strings.settingsSaved, 'success');
 		}).fail(function (message) {
 			showNotice(message, 'error');
@@ -753,6 +1303,14 @@
 		exportCsv();
 	});
 
+	$('#ilswq-browser-start').on('click', function () {
+		startBrowserConversion();
+	});
+
+	$('#ilswq-browser-stop').on('click', function () {
+		stopBrowserConversion();
+	});
+
 	$('#ilswq-validate-webp').on('click', function () {
 		var ids = generatedAttachmentIds();
 		if (!ids.length) {
@@ -836,6 +1394,7 @@
 		$('#ilswq-search').val('').trigger('input').trigger('focus');
 	});
 
+	initializeBrowserSupport();
 	renderQueueStatus(queueStatus);
 	scheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);
 })(jQuery);
