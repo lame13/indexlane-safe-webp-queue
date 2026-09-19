@@ -3,7 +3,7 @@
  * Plugin Name: IndexLane Safe WebP Queue
  * Plugin URI: https://indexlane.dev/plugins/safe-webp-queue
  * Description: Convert images to WebP on your hosting or in your browser. Keep your originals. No cloud service, API key, or conversion credits.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: IndexLane
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ILSWQ_VERSION', '1.0.0' );
+define( 'ILSWQ_VERSION', '1.0.1' );
 define( 'ILSWQ_FILE', __FILE__ );
 define( 'ILSWQ_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ILSWQ_URL', plugin_dir_url( __FILE__ ) );

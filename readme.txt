@@ -2,9 +2,9 @@
 Contributors: wpfixpath
 Tags: webp, image optimization, images, media library, performance
 Requires at least: 6.0
-Tested up to: 7.1.1
+Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -202,6 +202,13 @@ The plugin detects source-file and quality-setting changes before regenerating i
 6. See the completed browser run, including the files saved and any copies skipped because they were not smaller.
 
 == Changelog ==
+
+= 1.0.1 =
+
+* Detected ImageMagick builds that ignore WebP quality and used GD or browser conversion instead, with a clearer server capability check.
+* Corrected the WordPress.org "Tested up to" header to 7.1; compatibility testing still uses WordPress 7.1.1.
+* Explicitly sanitized Media Library row-action IDs before normalizing them, resolving the Plugin Check input warning.
+* Updated release metadata and packaging checks for 1.0.1.
 
 = 1.0.0 =
 

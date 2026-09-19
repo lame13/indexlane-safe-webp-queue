@@ -1,5 +1,6 @@
 .idea/
 dist/
+codec/
 node_modules/
 .DS_Store
 __MACOSX/

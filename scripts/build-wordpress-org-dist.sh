@@ -25,7 +25,7 @@ if grep -Eq '^[[:space:]]*\*[[:space:]]*Update URI:' "${plugin_file}"; then
 fi
 
 if ! grep -Fqx "Stable tag: ${version}" "${repository_root}/readme.txt" ||
-	! grep -Fqx 'Tested up to: 7.1.1' "${repository_root}/readme.txt" ||
+	! grep -Fqx 'Tested up to: 7.1' "${repository_root}/readme.txt" ||
 	! grep -Fqx 'Contributors: wpfixpath' "${repository_root}/readme.txt"; then
 	printf 'The WordPress.org readme metadata is not aligned with the release.\n' >&2
 	exit 1

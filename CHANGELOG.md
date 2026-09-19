@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1 - 2026-09-19
+
+- Detected ImageMagick builds that silently ignore WebP quality and routed conversion to GD or the browser instead. Added a small, request-cached encoder probe and regression coverage for the Linux fallback.
+- Corrected the WordPress.org `Tested up to` header to `7.1`; compatibility testing still uses WordPress 7.1.1.
+- Explicitly sanitized Media Library row-action IDs before normalizing them, resolving the Plugin Check input warning.
+- Updated release metadata and packaging checks for 1.0.1, and ignored the local `codec/` directory.
+
 ## 1.0.0 - 2026-09-19
 
 - Added browser (WebAssembly) conversion. A WebP encoder compiled to WebAssembly ships with the plugin and runs in the administrator's browser, so images on hosts whose image editor cannot write WebP are still convertible. Nothing is installed on the machine and no service is contacted; only the finished WebP file returns to the site.

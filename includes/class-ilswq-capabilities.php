@@ -79,7 +79,7 @@ class ILSWQ_Capabilities {
 			__( 'Imagick WebP writing', 'indexlane-safe-webp-queue' ),
 			$imagick_webp ? __( 'Supported', 'indexlane-safe-webp-queue' ) : __( 'Not supported', 'indexlane-safe-webp-queue' ),
 			$imagick_webp ? 'pass' : 'warn',
-			__( 'Depends on the ImageMagick build installed by the host.', 'indexlane-safe-webp-queue' )
+			__( 'Requires a WebP encoder that honors the selected quality. If unavailable, use GD or browser conversion.', 'indexlane-safe-webp-queue' )
 		);
 
 		$gd_available = extension_loaded( 'gd' );
@@ -236,7 +236,55 @@ class ILSWQ_Capabilities {
 			return false;
 		}
 
-		return self::editor_class_supports_webp( 'WP_Image_Editor_Imagick' );
+		return self::editor_class_supports_webp( 'WP_Image_Editor_Imagick' ) && self::imagick_honors_webp_quality();
+	}
+
+	/**
+	 * Check the installed encoder, including hosts with backported fixes.
+	 *
+	 * Some ImageMagick builds advertise WebP but ignore lossy quality. A tiny
+	 * in-memory probe avoids relying on a version blacklist and is cached for
+	 * the rest of this request. It never reads or writes an attachment.
+	 *
+	 * @return bool
+	 */
+	public static function imagick_honors_webp_quality() {
+		static $supported = null;
+
+		if ( null !== $supported ) {
+			return $supported;
+		}
+
+		$supported = false;
+		if ( ! class_exists( 'Imagick' ) ) {
+			return false;
+		}
+
+		$image = null;
+		try {
+			$image = new Imagick();
+			$image->newPseudoImage( 32, 32, 'gradient:red-blue' );
+			$image->setImageFormat( 'WEBP' );
+			$outputs = array();
+			foreach ( array( 25, 90 ) as $quality ) {
+				$image->setImageCompressionQuality( $quality );
+				$image->setCompressionQuality( $quality );
+				$output = $image->getImageBlob();
+				if ( 'RIFF' !== substr( $output, 0, 4 ) || 'WEBP' !== substr( $output, 8, 4 ) ) {
+					return false;
+				}
+				$outputs[] = $output;
+			}
+			$supported = $outputs[0] !== $outputs[1];
+		} catch ( Throwable $exception ) {
+			$supported = false;
+		} finally {
+			if ( $image instanceof Imagick ) {
+				$image->clear();
+			}
+		}
+
+		return $supported;
 	}
 
 	/**

@@ -38,12 +38,21 @@ if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
 }
 
 $plugin_data = get_plugin_data( WP_PLUGIN_DIR . '/indexlane-safe-webp-queue/indexlane-safe-webp-queue.php', false, false );
-if ( 'IndexLane Safe WebP Queue' !== $plugin_data['Name'] || '1.0.0' !== $plugin_data['Version'] || ! empty( $plugin_data['UpdateURI'] ) ) {
-	fwrite( STDERR, "Release plugin metadata does not match 1.0.0.\n" );
+if ( 'IndexLane Safe WebP Queue' !== $plugin_data['Name'] || '1.0.1' !== $plugin_data['Version'] || ! empty( $plugin_data['UpdateURI'] ) ) {
+	fwrite( STDERR, "Release plugin metadata does not match 1.0.1.\n" );
 	exit( 1 );
 }
 
 $expected_editor = trim( (string) getenv( 'ILSWQ_SMOKE_EDITOR' ) );
+if ( 'Imagick' === $expected_editor && ! ILSWQ_Capabilities::imagick_honors_webp_quality() ) {
+	// Exercise the real fallback on distro builds that silently ignore quality.
+	if ( ! ILSWQ_Capabilities::editor_class_supports_webp( 'WP_Image_Editor_Imagick' ) || ! ILSWQ_Capabilities::gd_can_write_webp() || ILSWQ_Capabilities::imagick_can_write_webp() || 'GD' !== ILSWQ_Capabilities::preferred_editor_label() ) {
+		fwrite( STDERR, "An unreliable Imagick encoder did not fall back to GD.\n" );
+		exit( 1 );
+	}
+	fwrite( STDOUT, "Imagick ignores WebP quality on this host; verifying the GD fallback.\n" );
+	$expected_editor = 'GD';
+}
 if ( '' !== $expected_editor ) {
 	$expected_editor_class = 'Imagick' === $expected_editor ? 'WP_Image_Editor_Imagick' : ( 'GD' === $expected_editor ? 'WP_Image_Editor_GD' : '' );
 	if ( '' === $expected_editor_class || ! ILSWQ_Capabilities::editor_class_supports_webp( $expected_editor_class ) ) {
@@ -411,7 +420,16 @@ foreach ( array( $jpeg_id => 'jpeg_quality', $png_id => 'png_quality' ) as $qual
 		$output_sizes[] = (int) $probe_map['full']['webp_size'];
 	}
 	if ( $output_hashes[0] === $output_hashes[1] || $output_sizes[0] >= $output_sizes[1] ) {
-		ilswq_smoke_fail( 'Changing ' . $quality_key . ' did not change the encoded output as expected.' );
+		ilswq_smoke_fail(
+			sprintf(
+				'Changing %s did not change the encoded output as expected: quality 25 = %d bytes (%s), quality 90 = %d bytes (%s).',
+				$quality_key,
+				$output_sizes[0],
+				$output_hashes[0],
+				$output_sizes[1],
+				$output_hashes[1]
+			)
+		);
 	}
 	$converter->convert_attachment( $quality_id, $settings );
 }

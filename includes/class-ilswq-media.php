@@ -216,7 +216,7 @@ class ILSWQ_Media {
 
 		$task = isset( $_GET['ilswq_task'] ) && is_scalar( $_GET['ilswq_task'] ) ? sanitize_key( wp_unslash( $_GET['ilswq_task'] ) ) : '';
 		$ids  = self::normalize_ids(
-			isset( $_GET['ilswq_ids'] ) && is_scalar( $_GET['ilswq_ids'] ) ? explode( ',', (string) wp_unslash( $_GET['ilswq_ids'] ) ) : array()
+			isset( $_GET['ilswq_ids'] ) && is_scalar( $_GET['ilswq_ids'] ) ? explode( ',', sanitize_text_field( wp_unslash( $_GET['ilswq_ids'] ) ) ) : array()
 		);
 
 		check_admin_referer( self::ACTION . '_' . $task );
