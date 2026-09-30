@@ -152,9 +152,10 @@ class ILSWQ_Plugin {
 				'settings'     => ILSWQ_Settings::get(),
 				'queue'        => $this->queue->get_public_status(),
 				'browser'      => ILSWQ_Browser::admin_config(),
-				// The browser backend only replaces the queue when the server
-				// itself has no WebP writer.
-				'serverWriter' => ILSWQ_Capabilities::has_webp_writer(),
+				// Server conversion covers the image editor and the bundled
+				// pure-PHP encoder; the browser only replaces the queue when
+				// neither can run here.
+				'serverWriter' => ILSWQ_Capabilities::has_unattended_backend(),
 				'strings'      => array(
 					'scanning'                  => __( 'Scanning Media Library...', 'indexlane-safe-webp-queue' ),
 					'scanComplete'              => __( 'Scan complete.', 'indexlane-safe-webp-queue' ),
@@ -289,9 +290,9 @@ class ILSWQ_Plugin {
 		$queue_status = $this->queue->get_public_status();
 		$totals       = ILSWQ_Totals::summary();
 
-		$server_writer    = ILSWQ_Capabilities::has_webp_writer();
+		$server_backend   = ILSWQ_Capabilities::has_unattended_backend();
 		$browser_enabled  = ILSWQ_Browser::is_enabled();
-		$server_only_note = __( 'This hosting cannot create WebP through WordPress. Enable browser conversion in Queue Settings to use this computer instead.', 'indexlane-safe-webp-queue' );
+		$server_only_note = __( 'Enable browser conversion in Queue Settings, or use the optional built-in PHP encoder when it is available.', 'indexlane-safe-webp-queue' );
 		?>
 		<div class="wrap ilswq-wrap">
 			<h1><?php esc_html_e( 'IndexLane Safe WebP Queue', 'indexlane-safe-webp-queue' ); ?></h1>
@@ -353,10 +354,18 @@ class ILSWQ_Plugin {
 							<input type="checkbox" name="browser_conversion" value="1" <?php checked( $settings['browser_conversion'], 1 ); ?>>
 							<span><?php esc_html_e( 'Convert images in the browser', 'indexlane-safe-webp-queue' ); ?></span>
 						</label>
+						<label class="ilswq-checkbox">
+							<input type="checkbox" name="php_conversion" value="1" <?php checked( $settings['php_conversion'], 1 ); ?><?php disabled( ILSWQ_Capabilities::php_encoder_available(), false ); ?>>
+							<span><?php esc_html_e( 'Convert images with the built-in PHP encoder', 'indexlane-safe-webp-queue' ); ?></span>
+						</label>
 						<button type="submit" class="button"><?php esc_html_e( 'Save Settings', 'indexlane-safe-webp-queue' ); ?></button>
 					</form>
+					<?php if ( ! ILSWQ_Capabilities::php_encoder_available() ) : ?>
+						<p class="description ilswq-settings-note"><?php echo esc_html( ILSWQ_Capabilities::php_encoder_unavailable_reason() ); ?></p>
+					<?php endif; ?>
 					<p class="description ilswq-settings-note">
 						<?php esc_html_e( 'Hosting cannot create WebP? Enable browser conversion to use this computer instead. Nothing to install and no image service to connect. Use a current browser over HTTPS (or localhost), and keep this page open while it converts.', 'indexlane-safe-webp-queue' ); ?>
+						<?php esc_html_e( 'Or enable the built-in PHP encoder to convert on the server itself when no image tool can write WebP. It needs PHP 8.1 or newer and is far slower, so it is limited to smaller images.', 'indexlane-safe-webp-queue' ); ?>
 					</p>
 				</section>
 			</div>
@@ -472,8 +481,8 @@ class ILSWQ_Plugin {
 						<button type="button" class="button" id="ilswq-resume" disabled><?php esc_html_e( 'Resume Scan', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-pause" disabled><?php esc_html_e( 'Pause Scan', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-stop" disabled><?php esc_html_e( 'Stop Scan', 'indexlane-safe-webp-queue' ); ?></button>
-						<button type="button" class="button" id="ilswq-convert" disabled<?php if ( ! $server_writer ) : ?> title="<?php echo esc_attr( $server_only_note ); ?>"<?php endif; ?>><?php esc_html_e( 'Convert Selected', 'indexlane-safe-webp-queue' ); ?></button>
-						<button type="button" class="button" id="ilswq-library" disabled<?php if ( ! $server_writer ) : ?> title="<?php echo esc_attr( $server_only_note ); ?>"<?php endif; ?>><?php esc_html_e( 'Convert Entire Library', 'indexlane-safe-webp-queue' ); ?></button>
+						<button type="button" class="button" id="ilswq-convert" disabled<?php if ( ! $server_backend ) : ?> title="<?php echo esc_attr( $server_only_note ); ?>"<?php endif; ?>><?php esc_html_e( 'Convert Selected', 'indexlane-safe-webp-queue' ); ?></button>
+						<button type="button" class="button" id="ilswq-library" disabled<?php if ( ! $server_backend ) : ?> title="<?php echo esc_attr( $server_only_note ); ?>"<?php endif; ?>><?php esc_html_e( 'Convert Entire Library', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-validate-webp" disabled><?php esc_html_e( 'Validate WebP', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button" id="ilswq-export" disabled><?php esc_html_e( 'Export CSV', 'indexlane-safe-webp-queue' ); ?></button>
 						<button type="button" class="button ilswq-danger" id="ilswq-cleanup"><?php esc_html_e( 'Delete Generated WebPs', 'indexlane-safe-webp-queue' ); ?></button>
@@ -920,7 +929,7 @@ class ILSWQ_Plugin {
 			}
 
 			$settings = ILSWQ_Settings::get();
-			if ( ! empty( $settings['auto_uploads'] ) && ILSWQ_Capabilities::has_webp_writer() ) {
+			if ( ! empty( $settings['auto_uploads'] ) && ILSWQ_Capabilities::has_unattended_backend() ) {
 				$queued = $this->queue->enqueue_upload( (int) $attachment_id, $settings );
 				if ( is_wp_error( $queued ) ) {
 					update_post_meta( (int) $attachment_id, ILSWQ_META_LAST_ERROR, $queued->get_error_message() );

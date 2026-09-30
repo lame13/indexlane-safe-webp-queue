@@ -15,6 +15,7 @@
 	var queueTimer = null;
 	var browserConfig = ILSWQ_Admin.browser || null;
 	var browserEnabled = !!(browserConfig && browserConfig.enabled);
+	var phpEnabled = !!(ILSWQ_Admin.settings && parseInt(ILSWQ_Admin.settings.php_conversion, 10) === 1);
 	// wp_localize_script casts top-level scalars to strings, so compare explicitly.
 	var serverWriter = ILSWQ_Admin.serverWriter === true || ILSWQ_Admin.serverWriter === '1';
 	var browserSupport = null;
@@ -39,7 +40,8 @@
 			skip_larger: $form.find('[name="skip_larger"]').is(':checked') ? 1 : 0,
 			serve_webp: $form.find('[name="serve_webp"]').is(':checked') ? 1 : 0,
 			auto_uploads: $form.find('[name="auto_uploads"]').is(':checked') ? 1 : 0,
-			browser_conversion: $form.find('[name="browser_conversion"]').is(':checked') ? 1 : 0
+			browser_conversion: $form.find('[name="browser_conversion"]').is(':checked') ? 1 : 0,
+			php_conversion: $form.find('[name="php_conversion"]').is(':checked') ? 1 : 0
 		};
 	}
 
@@ -1183,11 +1185,12 @@
 		setBusy(true);
 
 		var nextBrowserEnabled = getSettings().browser_conversion === 1;
+		var nextPhpEnabled = getSettings().php_conversion === 1;
 
 		ajax('ilswq_save_settings', {
 			settings: getSettings()
 		}).then(function () {
-			if (nextBrowserEnabled !== browserEnabled && window.location && typeof window.location.reload === 'function') {
+			if ((nextBrowserEnabled !== browserEnabled || nextPhpEnabled !== phpEnabled) && window.location && typeof window.location.reload === 'function') {
 				window.location.reload();
 				return;
 			}

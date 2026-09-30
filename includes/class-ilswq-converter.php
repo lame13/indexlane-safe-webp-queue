@@ -152,7 +152,13 @@ class ILSWQ_Converter {
 		// eligibility so the report can still offer them, and the queue counts
 		// them as skipped rather than failed.
 		if ( ! empty( $browser_required ) ) {
-			return $row;
+			$browser_ready = ! empty( $row['browser_source_count'] );
+			return $this->scanner->with_status(
+				$row,
+				$converted > 0 ? 'needs-review' : ( $browser_ready ? 'eligible' : 'skipped' ),
+				$browser_required[0],
+				$browser_ready
+			);
 		}
 
 		if ( 0 === $converted && ! empty( $skipped ) ) {
@@ -490,10 +496,7 @@ class ILSWQ_Converter {
 		}
 
 		if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
-			return array(
-				'browser_required' => true,
-				'reason'           => __( 'Convert this file in the browser: this server has no image editor that can write WebP.', 'indexlane-safe-webp-queue' ),
-			);
+			return $this->convert_source_with_php( $source, $settings );
 		}
 
 		$target = $this->prepare_output_target( $source );
@@ -562,6 +565,80 @@ class ILSWQ_Converter {
 	}
 
 	/**
+	 * Convert one source with the pure-PHP backend, or defer to the browser.
+	 *
+	 * Reached only when no image editor on this host can write WebP. The
+	 * bundled encoder is a strict fallback: it never displaces GD or Imagick,
+	 * it is capped by megapixels, and a file it cannot read (a progressive
+	 * JPEG on a host without GD, for example) is handed to the browser just as
+	 * this path used to do unconditionally.
+	 *
+	 * @param array<string, mixed> $source Source.
+	 * @param array<string, int>   $settings Settings.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	private function convert_source_with_php( $source, $settings ) {
+		if ( ! ILSWQ_Capabilities::php_encoder_enabled() ) {
+			return array(
+				'browser_required' => true,
+				'reason'           => __( 'Convert this file in the browser: this server has no image editor that can write WebP.', 'indexlane-safe-webp-queue' ),
+			);
+		}
+
+		if ( ! ILSWQ_PHP_Encoder::source_within_limits( $source ) ) {
+			return array(
+				'browser_required' => true,
+				'reason'           => __( 'Convert this file in the browser: it is larger than the built-in PHP encoder handles.', 'indexlane-safe-webp-queue' ),
+			);
+		}
+
+		// An early, cheap check so a doomed conversion never spends minutes
+		// encoding; install_bytes_result() repeats it after the encode.
+		$target = $this->prepare_output_target( $source );
+		if ( is_wp_error( $target ) || ! empty( $target['conflict'] ) ) {
+			return $target;
+		}
+
+		if ( function_exists( 'wp_raise_memory_limit' ) ) {
+			wp_raise_memory_limit( 'image' );
+		}
+
+		$quality      = ILSWQ_Settings::quality_for_mime( isset( $source['mime_type'] ) ? (string) $source['mime_type'] : '', $settings );
+		$source_mtime = filemtime( $target['source'] );
+		$encoded      = ILSWQ_PHP_Encoder::encode( (string) $target['source'], $quality );
+
+		if ( is_wp_error( $encoded ) ) {
+			if ( in_array( $encoded->get_error_code(), array( 'ilswq_php_unsupported', 'ilswq_php_skipped_webp', 'ilswq_php_limits' ), true ) ) {
+				// Nothing local can read it; the browser backend still might.
+				return array(
+					'browser_required' => true,
+					'reason'           => $encoded->get_error_message(),
+				);
+			}
+
+			return $encoded;
+		}
+
+		// The bytes come from an in-process encoder over pixels this request
+		// just decoded, so they do not need the untrusted-upload container
+		// walk the browser backend runs. What is worth checking is that the
+		// file did not change under us between the scan and the encode: the
+		// encoder reports the geometry it actually coded, and it carries a
+		// source ICC profile through to an ICCP chunk, which a stricter
+		// container check would reject.
+		$expected_w = isset( $source['width'] ) ? (int) $source['width'] : 0;
+		$expected_h = isset( $source['height'] ) ? (int) $source['height'] : 0;
+		clearstatcache( true, $target['source'] );
+		if ( (int) $encoded['width'] !== $expected_w || (int) $encoded['height'] !== $expected_h
+			|| filemtime( $target['source'] ) !== $source_mtime
+			|| (int) filesize( $target['source'] ) !== (int) $source['original_size'] ) {
+			return new WP_Error( 'ilswq_php_source_changed', __( 'The source image changed while it was converting. Convert it again.', 'indexlane-safe-webp-queue' ) );
+		}
+
+		return $this->install_bytes_result( $source, (string) $encoded['bytes'], 'PHP (picowebp)', $settings );
+	}
+
+	/**
 	 * Install WebP bytes produced somewhere other than the server image editor.
 	 *
 	 * The browser conversion backend hands validated bytes to this method so
@@ -576,6 +653,29 @@ class ILSWQ_Converter {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public function install_generated_bytes( $attachment_id, $source, $bytes, $editor_label, $settings ) {
+		$result = $this->install_bytes_result( $source, $bytes, $editor_label, $settings );
+
+		if ( ! is_wp_error( $result ) && ! empty( $result['entry'] ) && is_array( $result['entry'] ) ) {
+			$map = $this->map_with_entry( absint( $attachment_id ), ILSWQ_Scanner::get_webp_map( $attachment_id ), $result['entry'] );
+			$this->save_generated_map( absint( $attachment_id ), $map );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Stage already-encoded bytes and finalize the generated file.
+	 *
+	 * Unlike install_generated_bytes() this does not touch the stored map or
+	 * totals, so the batch loop stays the single place that records a run.
+	 *
+	 * @param array<string, mixed> $source Scanned source.
+	 * @param string               $bytes WebP bytes.
+	 * @param string               $editor_label Backend label stored with the entry.
+	 * @param array<string, int>   $settings Settings.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	private function install_bytes_result( $source, $bytes, $editor_label, $settings ) {
 		$target = $this->prepare_output_target( $source );
 		if ( is_wp_error( $target ) || ! empty( $target['conflict'] ) ) {
 			return $target;
@@ -602,14 +702,7 @@ class ILSWQ_Converter {
 
 		$this->delete_temporary_seed( $temporary );
 
-		$result = $this->finalize_generated_file( $source, $temporary['output'], $temporary, $editor_label, $settings );
-
-		if ( ! is_wp_error( $result ) && ! empty( $result['entry'] ) && is_array( $result['entry'] ) ) {
-			$map = $this->map_with_entry( absint( $attachment_id ), ILSWQ_Scanner::get_webp_map( $attachment_id ), $result['entry'] );
-			$this->save_generated_map( absint( $attachment_id ), $map );
-		}
-
-		return $result;
+		return $this->finalize_generated_file( $source, $temporary['output'], $temporary, $editor_label, $settings );
 	}
 
 	/**

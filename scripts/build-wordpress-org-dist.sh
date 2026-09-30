@@ -117,6 +117,13 @@ if [[ "${wasm_asset_count}" -lt 2 ]]; then
 	exit 1
 fi
 
+# The pure-PHP conversion backend ships as a bundled library; without it the
+# plugin silently loses its "no image editor at all" path.
+if [[ ! -f "${package_root}/includes/picowebp/src/Vp8LossyEncoder.php" ]] || [[ ! -s "${package_root}/includes/picowebp/LICENSE" ]]; then
+	printf 'The bundled picowebp encoder is missing from the release package.\n' >&2
+	exit 1
+fi
+
 hidden_entry="$(find "${package_root}" -name '.*' -print -quit)"
 if [[ -n "${hidden_entry}" ]]; then
 	printf 'The release package contains a hidden file: %s\n' "${hidden_entry}" >&2

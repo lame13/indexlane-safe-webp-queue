@@ -725,6 +725,7 @@ class ILSWQ_Scanner {
 		$source['webp_size_label']        = '';
 		$source['webp_url']               = '';
 		$source['browser_only']           = false;
+		$source['php_only']               = false;
 
 		$file = isset( $source['path'] ) ? wp_normalize_path( (string) $source['path'] ) : '';
 		if ( '' === $file ) {
@@ -812,18 +813,22 @@ class ILSWQ_Scanner {
 		}
 
 		$server_writer = ILSWQ_Capabilities::has_webp_writer();
+		$php_on        = ILSWQ_Capabilities::php_encoder_enabled();
+		$php_ready     = $php_on && ILSWQ_PHP_Encoder::source_within_limits( $source );
 		$browser_on    = ILSWQ_Browser::is_enabled();
 		$browser_ready = $browser_on && ILSWQ_Browser::source_within_limits( $source );
 
-		if ( ! $server_writer && ! $browser_ready ) {
-			// Inside this branch an enabled browser can only mean the file is
-			// outside the browser encoder limits.
+		if ( ! $server_writer && ! $php_ready && ! $browser_ready ) {
+			// No server backend can take this file and either the browser is
+			// off or the file is outside the browser encoder limits.
 			return $this->source_with_status(
 				$source,
 				'skipped',
 				$browser_on
 					? __( 'Image is too large for browser conversion', 'indexlane-safe-webp-queue' )
-					: __( 'WebP not supported by server', 'indexlane-safe-webp-queue' ),
+					: ( $php_on
+						? __( 'Image is too large for the built-in PHP encoder', 'indexlane-safe-webp-queue' )
+						: __( 'WebP not supported by server', 'indexlane-safe-webp-queue' ) ),
 				false
 			);
 		}
@@ -837,9 +842,9 @@ class ILSWQ_Scanner {
 		}
 
 		// Browser conversion runs on the administrator's device, so the PHP
-		// memory ceiling only constrains the local image editor path. Files that
+		// memory ceiling only constrains the server-side backends. Files that
 		// only the browser can handle stay eligible and are flagged as such.
-		if ( $server_writer ) {
+		if ( $server_writer || $php_ready ) {
 			$memory_limit = ILSWQ_Capabilities::memory_limit_bytes();
 			if ( $memory_limit > 0 ) {
 				$safe_memory = (int) floor( $memory_limit * 0.70 );
@@ -855,9 +860,11 @@ class ILSWQ_Scanner {
 			}
 		}
 
-		if ( ! $server_writer && $browser_ready ) {
+		if ( ! $server_writer && ! $php_ready && $browser_ready ) {
 			$source['browser_only'] = true;
 		}
+
+		$source['php_only'] = ! $server_writer && $php_ready;
 
 		// Regeneration has the same limits as first-time conversion. In
 		// particular, a quality change must not bypass the PHP memory check.
@@ -865,7 +872,14 @@ class ILSWQ_Scanner {
 			return $this->source_with_status( $source, 'needs-review', $entry_issue, true );
 		}
 
-		return $this->source_with_status( $source, 'eligible', __( 'Ready for conversion', 'indexlane-safe-webp-queue' ), true );
+		return $this->source_with_status(
+			$source,
+			'eligible',
+			$source['php_only']
+				? __( 'Ready for conversion with the built-in PHP encoder', 'indexlane-safe-webp-queue' )
+				: __( 'Ready for conversion', 'indexlane-safe-webp-queue' ),
+			true
+		);
 	}
 
 	/**
@@ -934,8 +948,9 @@ class ILSWQ_Scanner {
 		$row['width']      = isset( $full['width'] ) ? (int) $full['width'] : 0;
 		$row['height']     = isset( $full['height'] ) ? (int) $full['height'] : 0;
 		$row['dimensions'] = isset( $full['dimensions'] ) ? (string) $full['dimensions'] : '';
-		$row['editor']     = ILSWQ_Capabilities::has_webp_writer()
-			? ILSWQ_Capabilities::preferred_editor_label()
+		$server_backend    = ILSWQ_Capabilities::preferred_server_backend_label();
+		$row['editor']     = '' !== $server_backend
+			? $server_backend
 			: __( 'WASM (browser)', 'indexlane-safe-webp-queue' );
 
 		$source_count          = count( $sources );
@@ -1037,6 +1052,8 @@ class ILSWQ_Scanner {
 		$row['savings']                = $this->savings_label( $covered_source_bytes, (int) $row['webp_size'] );
 		if ( ! empty( $editors ) ) {
 			$row['editor'] = implode( ', ', array_unique( $editors ) );
+		} elseif ( $browser_only_count > 0 && $browser_only_count >= $row['eligible_source_count'] ) {
+			$row['editor'] = __( 'WASM (browser)', 'indexlane-safe-webp-queue' );
 		}
 
 		if ( $counts['conflict'] > 0 ) {

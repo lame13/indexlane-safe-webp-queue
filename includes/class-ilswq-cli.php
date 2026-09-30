@@ -75,11 +75,11 @@ class ILSWQ_CLI {
 	public function status( $args, $assoc_args ) {
 		unset( $args );
 
-		if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
+		if ( ! ILSWQ_Capabilities::has_unattended_backend() ) {
 			WP_CLI::warning(
 				ILSWQ_Browser::is_enabled()
-					? __( 'This server has no WordPress image editor that can write WebP. Browser conversion is enabled, so convert from the plugin page.', 'indexlane-safe-webp-queue' )
-					: __( 'This server has no WordPress image editor that can write WebP.', 'indexlane-safe-webp-queue' )
+					? __( 'This server has no WordPress image editor or built-in PHP encoder that can write WebP. Browser conversion is enabled, so convert from the plugin page.', 'indexlane-safe-webp-queue' )
+					: __( 'This server has no WordPress image editor or built-in PHP encoder that can write WebP.', 'indexlane-safe-webp-queue' )
 			);
 		}
 
@@ -183,11 +183,11 @@ class ILSWQ_CLI {
 		$dry_run  = self::has_flag( $assoc_args, 'dry-run' );
 		$all      = self::has_flag( $assoc_args, 'all' );
 
-		if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
+		if ( ! ILSWQ_Capabilities::has_unattended_backend() ) {
 			WP_CLI::error(
 				ILSWQ_Browser::is_enabled()
-					? __( 'This server has no WordPress image editor that can write WebP. Browser conversion always runs from the plugin page, not from WP-CLI.', 'indexlane-safe-webp-queue' )
-					: __( 'This server has no WordPress image editor that can write WebP.', 'indexlane-safe-webp-queue' )
+					? __( 'This server has no WordPress image editor or built-in PHP encoder that can write WebP. Browser conversion always runs from the plugin page, not from WP-CLI.', 'indexlane-safe-webp-queue' )
+					: __( 'This server has no WordPress image editor or built-in PHP encoder that can write WebP.', 'indexlane-safe-webp-queue' )
 			);
 		}
 
@@ -490,6 +490,12 @@ class ILSWQ_CLI {
 
 		$rows[] = self::row( __( 'Plugin version', 'indexlane-safe-webp-queue' ), ILSWQ_VERSION );
 		$rows[] = self::row( __( 'WebP writer', 'indexlane-safe-webp-queue' ), ILSWQ_Capabilities::preferred_editor_label() );
+		$rows[] = self::row(
+			__( 'Pure-PHP encoder', 'indexlane-safe-webp-queue' ),
+			ILSWQ_Capabilities::php_encoder_available()
+				? ( ILSWQ_Capabilities::php_encoder_enabled() ? __( 'Yes', 'indexlane-safe-webp-queue' ) : __( 'Available', 'indexlane-safe-webp-queue' ) )
+				: __( 'Not available', 'indexlane-safe-webp-queue' )
+		);
 		$rows[] = self::row( __( 'Convertible Media Library images', 'indexlane-safe-webp-queue' ), (string) $library );
 		$rows[] = self::row( __( 'Queue state', 'indexlane-safe-webp-queue' ), (string) $status['state_label'] );
 		$rows[] = self::row( __( 'Queue progress', 'indexlane-safe-webp-queue' ), (string) $status['summary'] );

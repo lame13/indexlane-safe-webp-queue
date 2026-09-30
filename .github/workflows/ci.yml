@@ -100,7 +100,39 @@ jobs:
           coverage: none
 
       - name: Lint PHP files
-        run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
+        run: |
+          # The plugin itself supports PHP 7.4+.
+          find . -name '*.php' -not -path './includes/picowebp/*' -print0 | xargs -0 -n1 php -l
+          # The bundled picowebp encoder needs PHP 8.1, so it is only linted on
+          # runtimes that can actually parse it.
+          if php -r 'exit(version_compare(PHP_VERSION, "8.1.0", ">=") ? 0 : 1);'; then
+            find ./includes/picowebp -name '*.php' -print0 | xargs -0 -n1 php -l
+          fi
+
+  pure-php-encoder:
+    name: Pure-PHP encoder (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php:
+          - '7.4'
+          - '8.0'
+          - '8.1'
+          - '8.4'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - name: Run the pure-PHP encoder checks
+        run: php tests/php-encoder.php
 
   wordpress-activation:
     name: WordPress activation (WP ${{ matrix.wordpress }}, PHP ${{ matrix.php }}, ${{ matrix.image_stack }})
@@ -201,3 +233,6 @@ jobs:
         uses: WordPress/plugin-check-action@v1
         with:
           build-dir: /tmp/plugin-check/indexlane-safe-webp-queue
+          # First-party code keeps its PHP 7.4 baseline. The optional, guarded
+          # upstream encoder has dedicated runtime and lint checks above.
+          exclude-directories: includes/picowebp

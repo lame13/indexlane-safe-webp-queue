@@ -20,6 +20,8 @@ const downloads = [];
 const textValues = {};
 const hiddenValues = {};
 const disabledValues = {};
+const eventHandlers = {};
+const formValues = { '[name="browser_conversion"]': true, '[name="php_conversion"]': false };
 let csvBlob;
 let checkboxes = [];
 const cleanupResponses = [
@@ -43,7 +45,9 @@ function collection(items = [], selector = '') {
 			items.length = 0;
 			return this;
 		},
-		find: function () { return this; },
+		find: function (childSelector) { return collection([], childSelector); },
+		is: function () { return !!formValues[selector]; },
+		val: function () { return formValues[selector]; },
 		filter: function (predicate) {
 			return collection(items.filter(function (item) {
 				return predicate === ':checked' ? item.checked : predicate.call(item);
@@ -52,7 +56,10 @@ function collection(items = [], selector = '') {
 		first: function () { return collection(items.length ? [items[0]] : []); },
 		get: function () { return items; },
 		map: function (callback) { return collection(items.map(function (item) { return callback.call(item); })); },
-		on: function () { return this; },
+		on: function (event, handler) {
+			eventHandlers[selector + ':' + event] = handler;
+			return this;
+		},
 		prop: function (name, value) {
 			if (selector && name === 'hidden') {
 				hiddenValues[selector] = value;
@@ -84,9 +91,14 @@ jQuery.each = function (items, callback) {
 	items.forEach(function (item, index) { callback(index, item); });
 };
 
+class JQueryPromise extends Promise {
+	fail(callback) { return this.catch(callback); }
+	always(callback) { return this.finally(callback); }
+}
+
 jQuery.post = function (_url, data) {
 	requests.push(Object.assign({}, data));
-	return Promise.resolve(cleanupResponses.shift());
+	return JQueryPromise.resolve(cleanupResponses.shift());
 };
 
 const context = {
@@ -469,7 +481,26 @@ context.ILSWQ_TestHooks.cleanupQueue(0, 0, true).then(function () {
 	assertEqual(requests.length, 2, 'Cleanup did not request both pages');
 	assertEqual(requests[0].reset, 1, 'First cleanup request did not reset the cursor');
 	assertEqual(requests[1].reset, 0, 'Later cleanup request reset the cursor again');
-	console.log('Admin JavaScript tests passed.');
+	// Saving the PHP toggle must refresh the page's backend capabilities,
+	// otherwise a host without GD/Imagick keeps its server buttons disabled.
+	let reloads = 0;
+	context.window.location = { reload: function () { reloads++; } };
+	formValues['[name="php_conversion"]'] = true;
+	cleanupResponses.push({ success: true, data: { settings: { php_conversion: 1 } } });
+	eventHandlers['#ilswq-settings-form:submit']({ preventDefault: function () {} });
+	return new Promise(function (resolve) { setImmediate(resolve); }).then(function () {
+		assertEqual(reloads, 1, 'Enabling PHP conversion did not refresh backend controls');
+		assertEqual(requests[2].settings.php_conversion, 1, 'The PHP setting was not submitted');
+		context.ILSWQ_Admin.settings = { php_conversion: 1 };
+		vm.runInNewContext(source, context, { filename: sourcePath });
+		formValues['[name="php_conversion"]'] = false;
+		cleanupResponses.push({ success: true, data: { settings: { php_conversion: 0 } } });
+		eventHandlers['#ilswq-settings-form:submit']({ preventDefault: function () {} });
+		return new Promise(function (resolve) { setImmediate(resolve); });
+	}).then(function () {
+		assertEqual(reloads, 2, 'Disabling PHP conversion did not refresh backend controls');
+		console.log('Admin JavaScript tests passed.');
+	});
 }).catch(function (error) {
 	console.error(error);
 	process.exitCode = 1;

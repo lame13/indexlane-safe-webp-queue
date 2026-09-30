@@ -6,7 +6,7 @@ Your hosting plan may be light on image tools. Your images don't have to stay he
 
 Shared hosting can lack WebP support or enough PHP memory for image conversion. Enable **Convert images in the browser** and your computer does the encoding with the plugin's bundled WebAssembly encoder. Each source comes from your own site; each finished WebP goes back there. There is no desktop app or browser extension to install.
 
-If WordPress has GD or Imagick with WebP support, server conversion can handle selected images, the whole library, and future uploads in background batches. The standalone `cwebp` command is not used by this version.
+If WordPress has GD or Imagick with WebP support, server conversion can handle selected images, the whole library, and future uploads in background batches. On PHP 8.1+ the bundled pure-PHP encoder does the same even when no image editor can write WebP. The standalone `cwebp` command is not used by this version.
 
 ## Try it on a few images
 
@@ -47,6 +47,26 @@ rsync -a --delete dist/assets/ ../assets/wasm/assets/
 
 `npm run build` type checks both the DOM entry and the worker, runs the module regressions, and bundles the result. The build needs Node `^20.19.0` or `>=22.12.0`. Replace the generated assets directory so old hashed chunks cannot linger. Keep the existing `THIRD-PARTY-NOTICES/` directory and omit the bundler's `.vite/` metadata. CI rebuilds the module and compares it with the committed files, so the sources and the shipped bundle cannot drift apart.
 
+## Pure-PHP conversion
+
+Pure-PHP conversion is the third backend. The plugin bundles [`nikocodes/picowebp`](https://packagist.org/packages/nikocodes/picowebp), a WebP encoder written in PHP, so a host with no WebP-writing image editor — and no browser in the loop — can still convert on the server. Because it runs in the queue rather than a tab, whole-library jobs, automatic uploads and WP-CLI all work with it.
+
+The plugin still supports **PHP 7.4+**. picowebp is optional: PHP 8.1+ and `ext-zlib` are detected automatically, its library is never loaded on PHP 7.4 or 8.0, and its setting is disabled on incompatible hosts. GD/Imagick and browser conversion remain independent options. Composer lists picowebp as a suggestion, so installing the plugin does not require a newer PHP runtime.
+
+On compatible hosts, PHP conversion stays off until enabled and only runs when GD/Imagick cannot write WebP. It is much slower than libwebp, so it is capped at two megapixels per source file and processes one attachment per queue request, including automatic uploads. The `ilswq_php_encoder_max_pixels` filter can adjust the cap; the site's own max-pixels setting can only lower it. Actual file dimensions are checked before decoding. Outputs carry the `PHP (picowebp)` editor label and use the same ownership, savings, cleanup and serving paths as other conversions.
+
+Unsupported inputs, such as progressive JPEGs on a host without GD, and files above the cap can use browser conversion when it is enabled and its limits are met. JPEGs that still require EXIF rotation or mirroring must be uploaded as upright copies first.
+
+### Refreshing the bundled library
+
+The package is the source of truth. The plugin ships the copy under `includes/picowebp/`, so users do not need Composer. To refresh it, install the optional source package on a PHP 8.1+ development machine or use a local checkout, then sync:
+
+```sh
+bash scripts/sync-picowebp.sh
+```
+
+The script reads the installed Composer package, or the local `codec/picowebp` checkout while developing the package itself, and refuses to copy a tree that contains hidden files. Update the upstream version note in `includes/picowebp/README.md` when you bump it.
+
 ## Know what changes
 
 The plugin converts JPEG and PNG Media Library attachments. It preserves saved post content and attachment URLs. Frontend serving works through normal WordPress image-output filters; it does not rewrite saved image HTML, CSS backgrounds, theme files, page builder fields, or hardcoded URLs. GIF, SVG, AVIF, and existing WebP files are outside its conversion scope.
@@ -62,8 +82,11 @@ Run the JavaScript regression checks and translation audit:
 ```sh
 node --check assets/admin.js
 node tests/admin-js.js
+php tests/php-encoder.php
 bash scripts/check-i18n.sh
 ```
+
+`tests/php-encoder.php` checks automatic disabling without loading picowebp on older PHP runtimes. On PHP 8.1+ with zlib it exercises the bundled PNG/JPEG readers without GD, the enable setting, actual pixel limits, WebP output, ICC preservation, EXIF orientation protection and unsupported-input routing.
 
 The translation check requires PHP and WP-CLI. Build the release ZIP and WordPress.org SVN bundle with:
 
@@ -81,4 +104,4 @@ php tests/browser-wordpress.php /path/to/wordpress
 
 The smoke test exercises JPEG and transparent PNG conversion, generated sizes, persistent queue controls and retries, whole-library jobs, exclusions, Media Library actions, stored savings totals and rebuilds, foreign WebP protection, optional frontend serving, automatic uploads, source and quality changes, and attachment cleanup. The WP-CLI test boots WordPress with a WP-CLI stand-in and runs every command. Set `ILSWQ_SMOKE_EDITOR=GD` or `ILSWQ_SMOKE_EDITOR=Imagick` to check a specific editor.
 
-The browser test covers the server side of the WebAssembly backend: capability routing on a host without a WebP writer, the REST prepare/finish handshake, WebP container validation, prepared-job ownership, changed sources, foreign sibling files, replay, stored metadata, totals, frontend serving, and cleanup. It needs GD with WebP writing to build its fixtures and exits with status 3 when that is unavailable.
+The browser test covers the server side of the WebAssembly backend: capability routing on a host without a WebP writer, the REST prepare/finish handshake, WebP container validation, prepared-job ownership, changed sources, foreign sibling files, replay, stored metadata, totals, frontend serving, and cleanup. When the optional PHP encoder is available, it also checks manual and automatic queue batching, PHP-generated maps and totals, and browser fallback. It needs GD with WebP writing to build its fixtures and exits with status 3 when that is unavailable.

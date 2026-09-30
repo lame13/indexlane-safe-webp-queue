@@ -674,6 +674,80 @@ $cleanup = $converter->delete_generated_for_attachment( $jpeg_id, true );
 ilswq_browser_assert( empty( $cleanup['failed'] ), 'Cleanup reported failed deletions.' );
 ilswq_browser_assert( ! file_exists( $sidecar ), 'Cleanup did not remove the browser-generated WebP file.' );
 
+// 15. An optional PHP backend works through the same queue, ownership and
+// totals paths, including one-at-a-time automatic uploads and browser routing.
+if ( ILSWQ_PHP_Encoder::available() ) {
+	$previous_settings = ILSWQ_Settings::get();
+	$php_settings = $previous_settings;
+	$php_settings['php_conversion'] = 1;
+	$php_settings['browser_conversion'] = 1;
+	$php_settings['auto_uploads'] = 0;
+	$php_settings['skip_larger'] = 0;
+	$php_settings['batch_size'] = 3;
+	ILSWQ_Settings::save( $php_settings );
+	\PicoWebP\Vp8\ImageInput::$gdAvailable = false;
+
+	$php_fixture = $temp_dir . '/php-photo.jpg';
+	ilswq_browser_create_jpeg( $php_fixture, 24, 16 );
+	$php_ids = array(
+		ilswq_browser_insert_attachment( $php_fixture, 'ilswq-php-first.jpg' ),
+		ilswq_browser_insert_attachment( $php_fixture, 'ilswq-php-second.jpg' ),
+	);
+	$php_row = $scanner->scan_attachment( $php_ids[0], $php_settings );
+	ilswq_browser_assert( 'PHP (picowebp)' === $php_row['editor'] && ! $php_row['browser_only'], 'The report did not identify the active PHP backend.' );
+	ilswq_browser_assert( ILSWQ_Capabilities::has_unattended_backend(), 'PHP conversion was not recognized as an unattended backend.' );
+	$before_php = ILSWQ_Totals::get();
+	$php_job = $queue->start_job( $php_ids, $php_settings );
+	ilswq_browser_assert( ! is_wp_error( $php_job ), 'The queue refused PHP conversion.' );
+	$php_batch = $queue->process_next_batch();
+	ilswq_browser_assert( 1 === count( $php_batch['rows'] ) && 1 === (int) $php_batch['queue']['processed'], 'The slow PHP backend processed more than one manual attachment.' );
+	$queue->process_next_batch();
+	$after_php = ILSWQ_Totals::get();
+	ilswq_browser_assert( (int) $after_php['files'] === (int) $before_php['files'] + 2, 'PHP conversions were counted incorrectly in savings totals.' );
+	foreach ( $php_ids as $php_id ) {
+		$php_map = ILSWQ_Scanner::get_webp_map( $php_id );
+		ilswq_browser_assert( 1 === count( $php_map ) && 'PHP (picowebp)' === $php_map['full']['editor'], 'The PHP conversion did not store its owned output and editor.' );
+		ilswq_browser_assert( ILSWQ_Scanner::is_valid_webp_file( $php_map['full']['webp'] ), 'The installed PHP output was invalid.' );
+		$converter->delete_generated_for_attachment( $php_id, true );
+		$queue->enqueue_upload( $php_id, $php_settings );
+	}
+	$php_auto_queue = get_option( ILSWQ_Queue::AUTO_OPTION, array() );
+	foreach ( $php_auto_queue as &$php_auto_item ) {
+		$php_auto_item['available_at'] = 0;
+	}
+	unset( $php_auto_item );
+	update_option( ILSWQ_Queue::AUTO_OPTION, $php_auto_queue, false );
+	$php_batch = $queue->process_next_batch();
+	ilswq_browser_assert( 1 === count( $php_batch['rows'] ) && 1 === (int) $php_batch['queue']['automatic_pending'], 'The slow PHP backend processed more than one automatic attachment.' );
+	$queue->process_next_batch();
+	ilswq_browser_assert( 0 === (int) $queue->get_public_status()['automatic_pending'], 'Automatic PHP conversion did not drain.' );
+
+	// A progressive JPEG remains a browser target when the bundled baseline
+	// reader cannot decode it. Refusals must retain their useful explanation.
+	$progressive = imagecreatetruecolor( 24, 16 );
+	imageinterlace( $progressive, true );
+	imagejpeg( $progressive, $php_fixture, 90 );
+	imagedestroy( $progressive );
+	$unsupported_id = ilswq_browser_insert_attachment( $php_fixture, 'ilswq-php-progressive.jpg' );
+	$small_cap = static function () { return 128; };
+	add_filter( 'ilswq_php_encoder_max_pixels', $small_cap );
+	$browser_row = $scanner->scan_attachment( $unsupported_id, $php_settings );
+	ilswq_browser_assert( $browser_row['browser_only'] && 'WASM (browser)' === $browser_row['editor'], 'A file above the PHP cap had the wrong routing or editor label.' );
+	remove_filter( 'ilswq_php_encoder_max_pixels', $small_cap );
+	$unsupported_row = $converter->convert_attachment( $unsupported_id, $php_settings );
+	ilswq_browser_assert( 'eligible' === $unsupported_row['status_key'] && false !== strpos( $unsupported_row['reason'], 'cannot read' ), 'An unsupported PHP input lost its browser fallback explanation.' );
+	$php_settings['browser_conversion'] = 0;
+	ILSWQ_Settings::save( $php_settings );
+	$unsupported_row = $converter->convert_attachment( $unsupported_id, $php_settings );
+	ilswq_browser_assert( 'skipped' === $unsupported_row['status_key'] && ! $unsupported_row['eligible'], 'An unsupported PHP input was offered for conversion with no usable browser fallback.' );
+	foreach ( array_merge( $php_ids, array( $unsupported_id ) ) as $php_id ) {
+		wp_delete_attachment( $php_id, true );
+	}
+	\PicoWebP\Vp8\ImageInput::$gdAvailable = null;
+	ILSWQ_Settings::save( $previous_settings );
+	fwrite( STDOUT, "Pure-PHP queue integration checks passed.\n" );
+}
+
 foreach ( glob( $temp_dir . '/*' ) ?: array() as $file ) {
 	wp_delete_file( $file );
 }

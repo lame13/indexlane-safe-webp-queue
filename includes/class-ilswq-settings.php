@@ -30,6 +30,7 @@ class ILSWQ_Settings {
 			'serve_webp'         => 0,
 			'auto_uploads'       => 0,
 			'browser_conversion' => 0,
+			'php_conversion'     => 0,
 		);
 	}
 
@@ -69,6 +70,10 @@ class ILSWQ_Settings {
 			$raw['browser_conversion'] = 0;
 		}
 
+		if ( ! isset( $raw['php_conversion'] ) ) {
+			$raw['php_conversion'] = 0;
+		}
+
 		return self::sanitize( $raw );
 	}
 
@@ -97,6 +102,7 @@ class ILSWQ_Settings {
 		$serve_webp         = ! empty( self::scalar_or_default( $settings, 'serve_webp', $defaults['serve_webp'] ) );
 		$auto_uploads       = ! empty( self::scalar_or_default( $settings, 'auto_uploads', $defaults['auto_uploads'] ) );
 		$browser_conversion = ! empty( self::scalar_or_default( $settings, 'browser_conversion', $defaults['browser_conversion'] ) );
+		$php_conversion     = ! empty( self::scalar_or_default( $settings, 'php_conversion', $defaults['php_conversion'] ) );
 
 		return array(
 			'batch_size'         => $batch_size,
@@ -107,6 +113,7 @@ class ILSWQ_Settings {
 			'serve_webp'         => $serve_webp ? 1 : 0,
 			'auto_uploads'       => $auto_uploads ? 1 : 0,
 			'browser_conversion' => $browser_conversion ? 1 : 0,
+			'php_conversion'     => $php_conversion ? 1 : 0,
 		);
 	}
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0 - 2026-09-30
+
+- Added a third conversion backend: the bundled [`nikocodes/picowebp`](https://packagist.org/packages/nikocodes/picowebp) pure-PHP encoder. A host whose image editor cannot write WebP can now convert on the server itself, through the normal queue, whole-library jobs, automatic uploads and WP-CLI, with no GD, Imagick, `cwebp` or browser involved.
+- Kept the plugin compatible with PHP 7.4+. picowebp is optional: its PHP 8.1+ and zlib requirements are detected automatically, and its library is never loaded on PHP 7.4 or 8.0. Its setting is disabled on incompatible hosts and stays off by default on compatible ones. GD/Imagick and browser conversion remain available independently.
+- Limited PHP encoding to two million pixels per source by default, bounded VP8 dimensions, and checked the actual file dimensions before decoding so stale attachment metadata cannot bypass the cap. A site's own max-pixels setting can lower the ceiling.
+- Routed the pure-PHP path through the same staging, validation, ownership, conflict, totals and generated-map code as the other backends, so a pure-PHP conversion is indistinguishable from a GD, Imagick or browser conversion afterwards. The stored editor label is `PHP (picowebp)`.
+- Kept browser conversion as the fallback for unsupported inputs or files above the PHP cap. Both manual and automatic PHP queue work process one attachment per request. Preserved useful refusal reasons and corrected report labels for browser-only sources.
+- Refused JPEGs that still need EXIF rotation or mirroring instead of producing incorrectly oriented copies. Rechecked source dimensions, size and modification time before installing PHP output.
+- Added a server check, a Queue Settings toggle, a report editor label, a WP-CLI status row, and queue messages for the new backend. Saving the PHP toggle refreshes the admin's backend controls automatically, and unavailable-encoder explanations remain readable beside the settings.
+- Added an optional Composer package suggestion and a `scripts/sync-picowebp.sh` script for refreshing the bundled library. Composer installation does not raise the plugin's PHP requirement.
+- Added encoder checks on PHP 7.4, 8.0, 8.1 and 8.4, including automatic disabling on older runtimes, pure-PHP PNG/JPEG reading, pixel limits, ICC profiles and EXIF protection. Expanded WordPress queue and admin JavaScript regressions, corrected the smoke test's release version, and kept the bundled library outside the plugin's PHP 7.4 lint and translation baseline.
+- Refreshed the WordPress.org description and FAQs with clearer conversion choices, original-image protection, and PHP 7.4 compatibility details.
+
 ## 1.0.1 - 2026-09-19
 
 - Detected ImageMagick builds that silently ignore WebP quality and routed conversion to GD or the browser instead. Added a small, request-cached encoder probe and regression coverage for the Linux fallback.

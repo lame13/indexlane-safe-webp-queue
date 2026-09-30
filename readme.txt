@@ -4,21 +4,28 @@ Tags: webp, image optimization, images, media library, performance
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.1
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Convert images to WebP on your hosting or in your browser. Keep your originals. No cloud service, API key, or conversion credits.
+Create smaller WebP images while keeping your originals. Convert on your hosting or in your browser, with no cloud service, API key, or credits.
 
 == Description ==
 
-**WebP conversion, even when your hosting can't do it.**
+**Smaller image downloads. Your originals stay safe.**
 
-Some WordPress hosts can serve WebP images but don't have the tools to create them. Safe WebP Queue lets your own computer do the conversion, inside WordPress admin.
+Turn your Media Library's JPEGs, PNGs, thumbnails, and other WordPress image sizes into WebP copies. Check the actual savings, then choose when your site starts serving them to visitors.
 
-The plugin includes a WebP encoder that runs in your browser. It downloads an image from your site, converts it, and uploads the finished copy back to WordPress. Your original JPEGs and PNGs stay where they are.
+Safe WebP Queue works with your hosting's image tools, a bundled browser encoder, or an optional built-in PHP encoder. Even if your host can display WebP but cannot create it, you still have a way to convert. Your original JPEGs and PNGs stay where they are.
 
-No subscription, conversion credits, API key, or external conversion service. If your hosting already supports WebP, you can let it do the work in background batches instead.
+No subscription, conversion credits, API key, or external conversion service. Everything needed for conversion is included in the plugin.
+
+* **Keep control:** scan first, convert a few images, and review the results before serving WebP.
+* **Work at your pace:** use resumable background jobs or selected browser conversions.
+* **See what you saved:** inspect file sizes and savings, search the report, or export it as CSV.
+* **Keep your originals:** remove this plugin's generated copies whenever you need to.
+
+The plugin supports **PHP 7.4 and newer**. The optional picowebp backend is detected automatically and stays unavailable on PHP 7.4 or 8.0; the rest of the plugin continues to work.
 
 = Convert in your browser =
 
@@ -36,7 +43,15 @@ When WordPress has GD or Imagick with WebP support, use **Convert Selected** or 
 
 You can close the browser during a server job. Background progress uses WP-Cron, so it depends on site visits or a configured cron runner. Automatic conversion for future uploads is also available on supported hosts.
 
-Browser conversion remains available if you prefer it. Whole-library background jobs and automatic uploads need server conversion.
+Browser conversion remains available if you prefer it. Whole-library background jobs and automatic uploads also work with the optional PHP encoder when it is available and enabled.
+
+= Or convert with no image tools at all =
+
+If your hosting's image tools cannot write WebP and you want background conversion, turn on **Convert images with the built-in PHP encoder**. The bundled picowebp encoder runs on the server without GD, Imagick, or a separate encoder command.
+
+This optional method needs **PHP 8.1 or newer and zlib**. The plugin checks these requirements automatically and disables its setting on incompatible hosts, including PHP 7.4 and 8.0. It stays off until you enable it on a compatible host, and GD or Imagick remain the preferred method when they can write WebP.
+
+PHP encoding is much slower than the other methods. It is limited to **2 million pixels per source file** by default, and the queue processes one attachment per request, including its eligible generated sizes. Your maximum pixel setting can lower that limit. Use browser conversion for larger images or files the bundled readers cannot decode, such as progressive JPEGs on hosts without GD.
 
 = Review the results =
 
@@ -54,9 +69,9 @@ The plugin doesn't rewrite saved posts, attachment URLs, CSS backgrounds, page b
 
 Smaller copies reduce image downloads when your site serves them. Keeping both formats takes more disk space.
 
-= Four files, measured on my Mac =
+= Example savings from four real images =
 
-I tested version 1.0.0 with JPEG and PNG quality both set to 80. Browser conversion, GD, and Imagick all ran locally on the same Apple M1 Pro Mac with 32 GB RAM.
+These version 1.0.0 measurements use JPEG and PNG quality 80. Browser conversion, GD, and Imagick ran locally on the same Apple M1 Pro Mac with 32 GB RAM. They do not measure the optional PHP encoder.
 
 The large JPEG and PNG contain the same 3000 x 1348 photo. The small JPEG is a 600 x 270 version of it; the small PNG is a 600 x 400 transparent graphic.
 
@@ -99,12 +114,16 @@ Open **Tools -> IndexLane Safe WebP Queue**, scan your library, and try a few im
 == Installation ==
 
 1. Install and activate IndexLane Safe WebP Queue from Plugins in WordPress, or upload the plugin folder to /wp-content/plugins/.
-2. Open **Tools -> IndexLane Safe WebP Queue** and check the server support panel. To use your computer for conversion, enable **Convert images in the browser** in Queue Settings.
+2. Open **Tools -> IndexLane Safe WebP Queue** and check the server support panel. Use your host's WebP image tools, enable **Convert images in the browser**, or enable the optional **built-in PHP encoder** when its requirements are met.
 3. Click **Scan Media Library** and select a few eligible images.
 4. Choose **Convert Selected** for server conversion, or **Convert Selected in Browser** for browser conversion. Keep the page open during a browser run.
 5. Review the file sizes, savings, and any skip reasons. Enable **Serve WebP on the front end** in Settings when you're ready to use matching copies on your site.
 
 == Frequently Asked Questions ==
+
+= Does version 1.1.0 still work on PHP 7.4? =
+
+Yes. The plugin still requires only PHP 7.4. picowebp is an optional conversion backend, not a requirement for using the plugin. On PHP 7.4 or 8.0 its library is not loaded and its setting is disabled automatically. Server conversion through compatible GD or Imagick, browser conversion, reports, and the other plugin features remain available.
 
 = Can I try WebP without losing my original images? =
 
@@ -126,7 +145,9 @@ No. Conversion runs on your hosting or on your computer, depending on the method
 
 Turn on **Convert images in the browser** in Queue Settings. The WebP encoder that ships with the plugin then runs inside your own browser, so the image data never goes to another server and nothing has to be installed on your computer or your host. Your browser sends the finished WebP file back to your WordPress site, where it is stored beside the original exactly like a server conversion.
 
-This mode is attended work: keep the plugin page open while it runs. Whole-library jobs and automatic new-upload conversion still need a server WebP writer, because those run in the background.
+This mode is attended work: keep the plugin page open while it runs.
+
+If you would rather not keep a tab open, and your site runs PHP 8.1 or newer with zlib, turn on **Convert images with the built-in PHP encoder** instead. The normal background queue, whole-library jobs, automatic uploads, and WP-CLI can use it without a WebP-capable image editor. It is much slower than GD or Imagick and is limited to smaller images. The plugin detects compatibility automatically; this optional setting stays disabled on PHP 7.4 or 8.0.
 
 = Do I need anything installed for browser conversion? =
 
@@ -136,7 +157,7 @@ Use a current Chrome, Edge, Firefox, or Safari browser. The admin page must use 
 
 = Does the plugin use cwebp on my hosting? =
 
-Server conversion uses the WordPress image editor through GD or Imagick with WebP support. This version does not call the standalone `cwebp` command, so having that command installed by itself is not enough. If WordPress cannot write WebP, use browser conversion instead; its libwebp encoder is included in the plugin.
+Server conversion normally uses the WordPress image editor through GD or Imagick with WebP support. The plugin does not call the standalone `cwebp` command. If your image editor cannot write WebP, use the optional built-in PHP encoder (PHP 8.1 or newer with zlib) or browser conversion. Both encoders ship with the plugin.
 
 = Are there limits to browser conversion? =
 
@@ -150,11 +171,11 @@ It moves the image encoding to your computer. That can help when PHP cannot spar
 
 = Is browser conversion a replacement for the queue? =
 
-Use the server queue for background work when your hosting has a WebP writer. Browser conversion gives you a way to convert selected images when it doesn't, and can also help with files that exceed the server's memory estimate. The browser run needs the plugin page to stay open.
+Use the server queue for background work when your hosting has a WebP-capable image editor or the optional PHP encoder is enabled. Browser conversion handles selected images on your computer and can help with files that exceed the server's memory estimate or PHP encoder limits. The browser run needs the plugin page to stay open.
 
 = What about photos with rotation data? =
 
-WordPress normally creates an upright version when it processes a photo with EXIF rotation data. Those images convert normally. Older uploads or images that WordPress could not rotate may still depend on a rotation or mirror tag. Browser conversion rejects those files before encoding, including rotations that leave the dimensions unchanged. Save an upright copy without that tag and upload it again.
+WordPress normally creates an upright version when it processes a photo with EXIF rotation data. Those images convert normally. Older uploads or images that WordPress could not rotate may still depend on a rotation or mirror tag. Browser conversion and the optional PHP encoder refuse those files before encoding, including mirrors that leave the dimensions unchanged. Save an upright copy without that tag and upload it again.
 
 = Can I close the page while a conversion runs? =
 
@@ -162,7 +183,7 @@ For **server conversion**, yes. Conversion progress is saved, and WP-Cron can co
 
 = How do I convert my whole Media Library? =
 
-On a host with a working WebP writer, choose **Convert Entire Library**. The plugin counts eligible images and processes them in small batches, saving progress as it goes. The queue panel shows progress and failures. WP-Cron can continue the job between visits, depending on site traffic or your cron runner. If your host cannot write WebP, use selected browser conversions and keep the page open instead.
+Choose **Convert Entire Library** when your host has a WebP-capable image editor or the optional PHP encoder is enabled. The plugin processes images in small batches and saves progress. WP-Cron can continue the job between visits, depending on site traffic or your cron runner. Files beyond the PHP encoder's limits need another conversion method. If neither server method is available, use selected browser conversions and keep the page open.
 
 = Can I keep an image out of WebP conversion? =
 
@@ -178,7 +199,7 @@ Yes. `wp ilswq status` reports server support, settings, queue state, and stored
 
 = Can new uploads be converted automatically? =
 
-Yes, if your server has a WebP writer and you enable automatic new-upload conversion in Settings. It starts off. Once enabled, new uploads are queued after WordPress finishes creating their image sizes. Conversion runs in the background and follows the same server checks and conversion settings.
+Yes, if your server has a WebP-capable image editor or the optional PHP encoder is enabled, and you turn on automatic new-upload conversion in Settings. It starts off. New uploads are queued after WordPress finishes creating their image sizes. Background conversion follows the same limits and settings as manual server jobs.
 
 = How do I find or export a particular image? =
 
@@ -202,6 +223,15 @@ The plugin detects source-file and quality-setting changes before regenerating i
 6. See the completed browser run, including the files saved and any copies skipped because they were not smaller.
 
 == Changelog ==
+
+= 1.1.0 =
+
+* Added a third conversion backend: a pure-PHP WebP encoder. On PHP 8.1+ hosts with no WebP-writing image editor, the built-in queue, whole-library jobs, automatic uploads and WP-CLI can now create WebP files without GD, Imagick, `cwebp`, or a browser. It is off by default, capped by megapixels, and much slower than the other backends.
+* Bundled the picowebp encoder and added a server check, a settings toggle, and a report label for the new backend.
+* Kept browser conversion as the fallback for files the pure-PHP encoder cannot read or that exceed its size cap.
+* Kept PHP 7.4 support: picowebp is optional, is never loaded on PHP 7.4 or 8.0, and is disabled automatically when its PHP or zlib requirements are not met.
+* Refreshed conversion controls after changing the PHP setting and limited automatic PHP conversion to one attachment per request.
+* Checked actual source dimensions before PHP decoding, protected EXIF-oriented JPEGs, and retained useful fallback reasons and accurate conversion-method labels.
 
 = 1.0.1 =
 

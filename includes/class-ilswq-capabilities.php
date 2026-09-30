@@ -63,7 +63,7 @@ class ILSWQ_Capabilities {
 			__( 'WordPress image editor', 'indexlane-safe-webp-queue' ),
 			$wp_editor_available ? __( 'Available', 'indexlane-safe-webp-queue' ) : __( 'Missing', 'indexlane-safe-webp-queue' ),
 			$wp_editor_available ? 'pass' : 'fail',
-			__( 'Required for local conversion.', 'indexlane-safe-webp-queue' )
+			__( 'Used for GD or Imagick conversion.', 'indexlane-safe-webp-queue' )
 		);
 
 		$imagick_available = class_exists( 'Imagick' );
@@ -100,14 +100,38 @@ class ILSWQ_Capabilities {
 
 		$has_writer       = self::has_webp_writer();
 		$browser_enabled  = class_exists( 'ILSWQ_Browser' ) && ILSWQ_Browser::is_enabled();
+		$php_enabled      = self::php_encoder_enabled();
+		$php_fallback     = ! $has_writer && $php_enabled;
 		$browser_fallback = ! $has_writer && $browser_enabled;
 		$checks[]         = self::check(
 			__( 'Local WebP writer', 'indexlane-safe-webp-queue' ),
 			$has_writer ? self::preferred_editor_label() : __( 'None found', 'indexlane-safe-webp-queue' ),
-			$has_writer ? 'pass' : ( $browser_fallback ? 'warn' : 'fail' ),
-			$browser_fallback
-				? __( 'Browser conversion can still create WebP files on this site.', 'indexlane-safe-webp-queue' )
-				: __( 'At least one local editor must be able to write WebP.', 'indexlane-safe-webp-queue' )
+			$has_writer ? 'pass' : ( $php_fallback || $browser_fallback ? 'warn' : 'fail' ),
+			$has_writer
+				? __( 'At least one local image editor can write WebP.', 'indexlane-safe-webp-queue' )
+				: ( $php_fallback
+					? __( 'The pure-PHP encoder can still create WebP files on this server.', 'indexlane-safe-webp-queue' )
+					: ( $browser_fallback
+						? __( 'Browser conversion can still create WebP files on this site.', 'indexlane-safe-webp-queue' )
+						: __( 'At least one local editor must be able to write WebP.', 'indexlane-safe-webp-queue' ) ) )
+		);
+
+		$php_available = self::php_encoder_available();
+		$checks[]      = self::check(
+			__( 'Pure-PHP encoder', 'indexlane-safe-webp-queue' ),
+			$php_available
+				? ( $php_enabled ? __( 'Enabled', 'indexlane-safe-webp-queue' ) : __( 'Off', 'indexlane-safe-webp-queue' ) )
+				: __( 'Not available', 'indexlane-safe-webp-queue' ),
+			$php_available ? ( $php_enabled ? 'pass' : 'warn' ) : 'warn',
+			$php_available
+				? ( $php_enabled
+					? __( 'Images can also be converted on the server without GD or Imagick WebP support.', 'indexlane-safe-webp-queue' )
+					: __( 'Turn on "Convert images with the built-in PHP encoder" to convert without server WebP support. It is slower than GD or Imagick.', 'indexlane-safe-webp-queue' ) )
+				: sprintf(
+					/* translators: %s: why the pure-PHP encoder cannot run. */
+					__( 'Not available: %s', 'indexlane-safe-webp-queue' ),
+					self::php_encoder_unavailable_reason()
+				)
 		);
 
 		$checks[] = self::check(
@@ -195,6 +219,62 @@ class ILSWQ_Capabilities {
 		 * @param bool $available Whether a server image editor can write WebP.
 		 */
 		return (bool) apply_filters( 'ilswq_has_server_webp_writer', $available );
+	}
+
+	/**
+	 * Return true when the bundled pure-PHP encoder can run on this host.
+	 *
+	 * @return bool
+	 */
+	public static function php_encoder_available() {
+		return class_exists( 'ILSWQ_PHP_Encoder' ) && ILSWQ_PHP_Encoder::available();
+	}
+
+	/**
+	 * Return true when the pure-PHP encoder is available and turned on.
+	 *
+	 * @return bool
+	 */
+	public static function php_encoder_enabled() {
+		return class_exists( 'ILSWQ_PHP_Encoder' ) && ILSWQ_PHP_Encoder::is_enabled();
+	}
+
+	/**
+	 * Describe why the pure-PHP encoder cannot run.
+	 *
+	 * @return string
+	 */
+	public static function php_encoder_unavailable_reason() {
+		return class_exists( 'ILSWQ_PHP_Encoder' ) ? ILSWQ_PHP_Encoder::unavailable_reason() : '';
+	}
+
+	/**
+	 * Return true when any backend can convert without an administrator present.
+	 *
+	 * The image editor and the pure-PHP encoder both run inside the queue;
+	 * browser conversion needs an open tab, so it never satisfies this.
+	 *
+	 * @return bool
+	 */
+	public static function has_unattended_backend() {
+		return self::has_webp_writer() || self::php_encoder_enabled();
+	}
+
+	/**
+	 * Label for the server backend that will actually convert images.
+	 *
+	 * @return string
+	 */
+	public static function preferred_server_backend_label() {
+		if ( self::has_webp_writer() ) {
+			return self::preferred_editor_label();
+		}
+
+		if ( self::php_encoder_enabled() ) {
+			return 'PHP (picowebp)';
+		}
+
+		return '';
 	}
 
 	/**

@@ -1,0 +1,19 @@
+{
+    "name": "indexlane/indexlane-safe-webp-queue",
+    "description": "WordPress plugin that creates WebP copies of Media Library images with the site's image editor, the browser, or a bundled pure-PHP encoder.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "homepage": "https://indexlane.dev/plugins/safe-webp-queue",
+    "require": {
+        "php": ">=7.4"
+    },
+    "suggest": {
+        "nikocodes/picowebp": "Optional source package for refreshing the bundled encoder; requires PHP 8.1+ and zlib."
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "scripts": {
+        "sync-picowebp": "bash scripts/sync-picowebp.sh"
+    }
+}

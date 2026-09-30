@@ -29,7 +29,7 @@ php "${repository_root}/tests/i18n-audit.php"
 	--slug="${plugin_slug}" \
 	--domain="${plugin_slug}" \
 	--include="${plugin_slug}.php,includes/*.php,assets/admin.js" \
-	--exclude="dist,tests,scripts,wporg-assets"
+	--exclude="dist,tests,scripts,wporg-assets,includes/picowebp"
 
 grep -Fq '"X-Domain: indexlane-safe-webp-queue\n"' "${pot_path}"
 grep -Fq 'msgid "Conflict"' "${pot_path}"

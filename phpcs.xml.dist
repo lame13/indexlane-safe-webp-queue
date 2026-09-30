@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<ruleset name="IndexLane Safe WebP Queue">
+	<description>
+		The plugin's own PHP supports 7.4 and newer. The bundled picowebp
+		encoder under includes/picowebp is a third-party library that needs PHP
+		8.1 and is only loaded at runtime behind an explicit version check, so
+		compatibility, escaping and i18n sniffs must not judge it against the
+		plugin's own baseline.
+	</description>
+
+	<exclude-pattern>includes/picowebp/*</exclude-pattern>
+</ruleset>

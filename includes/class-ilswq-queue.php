@@ -165,8 +165,8 @@ class ILSWQ_Queue {
 			return new WP_Error( 'ilswq_auto_invalid_id', __( 'The uploaded attachment could not be queued.', 'indexlane-safe-webp-queue' ) );
 		}
 
-		if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
-			return new WP_Error( 'ilswq_auto_no_writer', __( 'This server has no image editor that can write WebP, so new uploads cannot be converted automatically.', 'indexlane-safe-webp-queue' ) );
+		if ( ! ILSWQ_Capabilities::has_unattended_backend() ) {
+			return new WP_Error( 'ilswq_auto_no_writer', __( 'This server has no image editor or built-in PHP encoder that can write WebP, so new uploads cannot be converted automatically.', 'indexlane-safe-webp-queue' ) );
 		}
 
 		$queue = $this->get_auto_queue();
@@ -431,8 +431,8 @@ class ILSWQ_Queue {
 			return new WP_Error( 'ilswq_queue_busy', __( 'The previous conversion batch is still finishing. Try again in a moment.', 'indexlane-safe-webp-queue' ) );
 		}
 
-		if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
-			return new WP_Error( 'ilswq_queue_no_writer', __( 'This server has no image editor that can write WebP. Use browser conversion for these images instead.', 'indexlane-safe-webp-queue' ) );
+		if ( ! ILSWQ_Capabilities::has_unattended_backend() ) {
+			return new WP_Error( 'ilswq_queue_no_writer', __( 'This server has no image editor or built-in PHP encoder that can write WebP. Use browser conversion for these images instead.', 'indexlane-safe-webp-queue' ) );
 		}
 
 		$is_library = null !== $library_total;
@@ -600,6 +600,13 @@ class ILSWQ_Queue {
 		$size     = max( 1, (int) $settings['batch_size'] );
 		$cursor   = isset( $job['cursor'] ) ? max( 0, (int) $job['cursor'] ) : 0;
 
+		// The pure-PHP encoder is slow enough that a multi-attachment batch
+		// could outlive the request. Run those one at a time so a timeout can
+		// never cost more than the attachment already in progress.
+		if ( ! ILSWQ_Capabilities::has_webp_writer() && ILSWQ_Capabilities::php_encoder_enabled() ) {
+			$size = 1;
+		}
+
 		if ( $this->job_is_library( $job ) ) {
 			$batch = ILSWQ_Scanner::get_library_page_ids( $cursor, $size, (int) $job['library_max_id'] );
 		} else {
@@ -703,9 +710,10 @@ class ILSWQ_Queue {
 		$rows           = array();
 		$now            = time();
 		$count          = 0;
+		$limit          = ! ILSWQ_Capabilities::has_webp_writer() && ILSWQ_Capabilities::php_encoder_enabled() ? 1 : 3;
 
 		foreach ( $queue as $key => $item ) {
-			if ( $count >= 3 ) {
+			if ( $count >= $limit ) {
 				continue;
 			}
 			if ( ! is_array( $item ) ) {
