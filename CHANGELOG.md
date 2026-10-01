@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1 - 2026-10-02
+
+- Resolved Plugin Check filesystem errors in the pure-PHP encoder's JPEG metadata reader with documented, call-specific exceptions. WordPress's filesystem API cannot stream or seek through JPEG markers, so the reader keeps its bounded, read-only access and existing EXIF rotation and mirror protection.
+- Updated the plugin version, WordPress.org stable tag and exact-package smoke check for 1.1.1.
+
 ## 1.1.0 - 2026-09-30
 
 - Added a third conversion backend: the bundled [`nikocodes/picowebp`](https://packagist.org/packages/nikocodes/picowebp) pure-PHP encoder. A host whose image editor cannot write WebP can now convert on the server itself, through the normal queue, whole-library jobs, automatic uploads and WP-CLI, with no GD, Imagick, `cwebp` or browser involved.

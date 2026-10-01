@@ -4,7 +4,7 @@ Tags: webp, image optimization, images, media library, performance
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -121,7 +121,7 @@ Open **Tools -> IndexLane Safe WebP Queue**, scan your library, and try a few im
 
 == Frequently Asked Questions ==
 
-= Does version 1.1.0 still work on PHP 7.4? =
+= Does version 1.1.1 still work on PHP 7.4? =
 
 Yes. The plugin still requires only PHP 7.4. picowebp is an optional conversion backend, not a requirement for using the plugin. On PHP 7.4 or 8.0 its library is not loaded and its setting is disabled automatically. Server conversion through compatible GD or Imagick, browser conversion, reports, and the other plugin features remain available.
 
@@ -223,6 +223,11 @@ The plugin detects source-file and quality-setting changes before regenerating i
 6. See the completed browser run, including the files saved and any copies skipped because they were not smaller.
 
 == Changelog ==
+
+= 1.1.1 =
+
+* Resolved Plugin Check filesystem errors in the pure-PHP encoder's JPEG metadata reader, preserving bounded reads and EXIF rotation and mirror protection.
+* Updated release metadata and package verification for 1.1.1.
 
 = 1.1.0 =
 

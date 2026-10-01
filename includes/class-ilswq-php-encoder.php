@@ -291,10 +291,15 @@ class ILSWQ_PHP_Encoder {
 	/**
 	 * Walk JPEG markers so an earlier XMP marker cannot hide EXIF orientation.
 	 *
+	 * WP_Filesystem reads entire files and has no streaming or seek API. Keep
+	 * these reads bounded to JPEG metadata on the local, read-only source that
+	 * encode() has already checked, rather than loading the whole image.
+	 *
 	 * @param string $path JPEG source path.
 	 * @return bool Whether the source requires orientation or has bad metadata.
 	 */
 	private static function jpeg_requires_orientation( $path ) {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- WP_Filesystem cannot open a read-only metadata stream.
 		$handle = @fopen( $path, 'rb' );
 		if ( false === $handle ) {
 			return true;
@@ -303,11 +308,13 @@ class ILSWQ_PHP_Encoder {
 		try {
 			fseek( $handle, 2 ); // Skip the JPEG SOI marker.
 			while ( ! feof( $handle ) ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- Read only the two-byte JPEG marker.
 				$marker = fread( $handle, 2 );
 				if ( strlen( $marker ) < 2 || "\xff" !== $marker[0] ) {
 					return true;
 				}
 				while ( "\xff" === $marker[1] ) {
+					// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- Read one marker-padding byte without buffering the image.
 					$next = fread( $handle, 1 );
 					if ( '' === $next || false === $next ) {
 						return true;
@@ -317,6 +324,7 @@ class ILSWQ_PHP_Encoder {
 				if ( "\xda" === $marker[1] || "\xd9" === $marker[1] ) {
 					return false; // Pixel data or end of image.
 				}
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- Read only the two-byte segment length.
 				$length_bytes = fread( $handle, 2 );
 				if ( strlen( $length_bytes ) < 2 ) {
 					return true;
@@ -326,6 +334,7 @@ class ILSWQ_PHP_Encoder {
 					return true;
 				}
 				if ( "\xe1" === $marker[1] && $length > 0 ) {
+					// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- A JPEG APP1 segment is bounded by its 16-bit length.
 					$app1 = fread( $handle, $length );
 					if ( strlen( $app1 ) !== $length || self::exif_requires_orientation( $app1 ) ) {
 						return true;
@@ -335,6 +344,7 @@ class ILSWQ_PHP_Encoder {
 				}
 			}
 		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Always close the read-only metadata stream, including early returns.
 			fclose( $handle );
 		}
 
