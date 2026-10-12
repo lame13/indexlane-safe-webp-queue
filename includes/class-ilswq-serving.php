@@ -72,6 +72,134 @@ class ILSWQ_Serving {
 	}
 
 	/**
+	 * Add an AVIF `<source>` element around a WordPress image tag.
+	 *
+	 * `wp_get_attachment_image_src()` and `wp_calculate_image_srcset()` can
+	 * only swap a URL, so they keep serving WebP, which every current browser
+	 * reads. AVIF is newer, so it is offered through a `<picture>` element with
+	 * the unchanged `<img>` as the fallback instead of by rewriting a URL that
+	 * has no fallback. A client that does not support AVIF therefore keeps the
+	 * WordPress output, including its own srcset.
+	 *
+	 * @param string               $html Image HTML.
+	 * @param int                  $attachment_id Attachment ID.
+	 * @param string|array<int,int> $size Requested size.
+	 * @param bool                 $icon Icon flag.
+	 * @param array<string, mixed> $attr Attributes.
+	 * @return string
+	 */
+	public static function filter_attachment_image_html( $html, $attachment_id, $size, $icon, $attr ) {
+		unset( $size, $attr );
+
+		if ( $icon || ! self::should_serve() || ! is_string( $html ) || ! self::is_image_tag( $html ) ) {
+			return $html;
+		}
+
+		$sources = self::picture_sources( (int) $attachment_id, $html );
+		if ( empty( $sources ) ) {
+			return $html;
+		}
+
+		return '<picture>' . implode( '', $sources ) . $html . '</picture>';
+	}
+
+	/**
+	 * Build the AVIF `<source>` element for a `<picture>`.
+	 *
+	 * Only AVIF is added here. WebP keeps the URL-swap behaviour above, because
+	 * every current browser reads WebP and a `<picture>` wrapper is a visible
+	 * markup change a theme may not expect. Wrapping is skipped entirely when
+	 * there is no AVIF copy, so a WebP-only site renders exactly as it did
+	 * before this release.
+	 *
+	 * The candidate URLs are taken from the `<img>` tag itself, so a source
+	 * is only offered at sizes WordPress was already willing to serve. That
+	 * keeps the browser's existing responsive choice intact and prevents a
+	 * large AVIF file being selected for a small slot.
+	 *
+	 * @param int    $attachment_id Attachment ID.
+	 * @param string $html Image HTML.
+	 * @return array<int, string>
+	 */
+	private static function picture_sources( $attachment_id, $html ) {
+		$entries = self::map_entries_with_urls( $attachment_id );
+		if ( empty( $entries ) ) {
+			return array();
+		}
+
+		$avif_urls = array();
+		foreach ( $entries as $entry ) {
+			if ( 'avif' !== ILSWQ_Scanner::entry_format( $entry ) ) {
+				continue;
+			}
+			$source_path = self::url_path( $entry['source_url'] );
+			$avif_urls[ $source_path ] = $entry['webp_url'];
+			// The earlier URL filter may already have selected owned WebP.
+			foreach ( $entries as $fallback ) {
+				if ( 'webp' === ILSWQ_Scanner::entry_format( $fallback ) && self::url_path( $fallback['source_url'] ) === $source_path ) {
+					$avif_urls[ self::url_path( $fallback['webp_url'] ) ] = $entry['webp_url'];
+				}
+			}
+		}
+
+		$srcset = self::img_attribute( $html, 'srcset' );
+		$sizes  = self::img_attribute( $html, 'sizes' );
+		$output = array();
+		if ( '' === $srcset ) {
+			$path = self::url_path( self::img_attribute( $html, 'src' ) );
+			if ( ! isset( $avif_urls[ $path ] ) ) {
+				return array();
+			}
+			$output[] = $avif_urls[ $path ];
+		} else {
+			foreach ( explode( ',', $srcset ) as $candidate ) {
+				if ( ! preg_match( '/^\s*(\S+)\s+(\d+w|(?:\d+(?:\.\d+)?)x)\s*$/', $candidate, $match ) ) {
+					return array();
+				}
+				$path = self::url_path( $match[1] );
+				// Preserve the exact crops and every responsive candidate.
+				// Partial AVIF coverage could force a thumbnail into a large slot.
+				if ( ! isset( $avif_urls[ $path ] ) ) {
+					return array();
+				}
+				$output[] = $avif_urls[ $path ] . ' ' . $match[2];
+			}
+		}
+
+		return array( sprintf(
+			'<source type="image/avif" srcset="%s"%s>',
+			esc_attr( implode( ', ', $output ) ),
+			'' !== $srcset && '' !== $sizes ? ' sizes="' . esc_attr( $sizes ) . '"' : ''
+		) );
+	}
+
+	/**
+	 * Read one attribute from an image tag.
+	 *
+	 * @param string $html Image HTML.
+	 * @param string $name Attribute name.
+	 * @return string
+	 */
+	private static function img_attribute( $html, $name ) {
+		$pattern = '/\s' . preg_quote( $name, '/' ) . '\s*=\s*("|\')(.*?)\1/is';
+		if ( ! preg_match( $pattern, $html, $matches ) ) {
+			return '';
+		}
+
+		return html_entity_decode( (string) $matches[2], ENT_QUOTES, 'UTF-8' );
+	}
+
+	/**
+	 * Return true when a string is a bare `<img>` tag we may wrap.
+	 *
+	 * @param string $html Image HTML.
+	 * @return bool
+	 */
+	private static function is_image_tag( $html ) {
+		return (bool) preg_match( '/^\s*<img\s[^<>]*>\s*$/i', $html );
+	}
+
+	/**
 	 * Return true when optional frontend serving is enabled.
 	 *
 	 * @return bool
@@ -103,6 +231,11 @@ class ILSWQ_Serving {
 		$source_path = self::url_path( $source_url );
 		foreach ( $entries as $entry ) {
 			if ( empty( $entry['source_url'] ) || empty( $entry['webp_url'] ) ) {
+				continue;
+			}
+			// A URL swap has no fallback, so only the universally readable WebP
+			// format is swapped here; AVIF is delivered by filter_attachment_image_html().
+			if ( 'webp' !== ILSWQ_Scanner::entry_format( $entry ) ) {
 				continue;
 			}
 
@@ -141,8 +274,9 @@ class ILSWQ_Serving {
 
 			$source_path = wp_normalize_path( (string) $entry['source'] );
 			$webp_path   = wp_normalize_path( (string) $entry['webp'] );
+			$format      = ILSWQ_Scanner::entry_format( $entry );
 
-			if ( ! ILSWQ_Scanner::is_valid_webp_file( $webp_path ) ) {
+			if ( ! ILSWQ_Scanner::is_valid_generated_file( $webp_path, $format ) ) {
 				continue;
 			}
 
@@ -158,6 +292,7 @@ class ILSWQ_Serving {
 
 			$entry['source_url'] = $source_url;
 			$entry['webp_url']   = $webp_url;
+			$entry['format']     = $format;
 			$entries[ $name ]    = $entry;
 		}
 

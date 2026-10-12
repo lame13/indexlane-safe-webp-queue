@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.2.1 - 2026-10-12
+
+- Preserve ownership when generated files are stale, missing, or damaged, so quality changes and repairs can regenerate them.
+- Allow WebP and AVIF conversions independently, including adding WebP through the server queue after AVIF conversion.
+- Preserve current AVIF copies during attachment metadata updates and clean obsolete sizes in both formats.
+- Match AVIF responsive candidates to exact source files, preserve crops, and retain the existing image fallback when AVIF coverage is incomplete.
+- Validate stored AVIF containers and compatible brands, including truncated files, animation brands, and malformed box boundaries.
+- Include both formats in report sizes, encoder labels, validation counts, and cleanup wording. Clarify that AVIF uses the browser and server jobs produce WebP.
+- Correct the browser encoder's AVIF lossless quality and chroma options.
+
+## 1.2.0 - 2026-10-12
+
+- Added in-browser AVIF conversion. The bundled WebAssembly worker now encodes AVIF as well as WebP, and **Browser conversion format** in Queue Settings selects which one a run produces. AVIF is typically 20-50% smaller than the equivalent WebP.
+- Added an **AVIF quality** setting (default 60 on libavif's scale) alongside the JPEG and PNG quality controls, plus a WP-CLI status row for the browser output format.
+- Made generated files format-aware: a size can hold a WebP copy, an AVIF copy, or both, keyed `{size}` and `{size}__avif`. Legacy WebP metadata is read unchanged, and existing installs keep their generated-map entries.
+- Served AVIF through a `<picture>` element with WebP and the untouched original as fallbacks. The `_src` and `srcset` filters still swap URLs to WebP only, because a bare URL swap has no fallback.
+- Added a bounded ISO-BMFF box walk on the server for uploaded AVIF bytes. It requires a still AVIF brand and an `ispe` spatial-extents box, and refuses animated sequences, non-AVIF HEIF brands, 64-bit box sizes, and boxes that overrun their parent.
+- Validated generated AVIF files locally by header brand instead of `getimagesize()`, so a host that cannot decode AVIF does not report its own generated files as invalid.
+- Kept AVIF in the browser backend. GD and Imagick cannot be relied on to encode AVIF on shared hosting, so the server queue, automatic uploads and WP-CLI continue to produce WebP.
+- Bundled `@jsquash/avif` 2.1.1 with the single-threaded libavif/libaom codec, so the AVIF path needs no `SharedArrayBuffer` or COOP/COEP headers. Only the codec for the configured format is loaded.
+- Added libavif and libaom licence notices to the release package and the CI licence check, and compared the rebuilt AVIF/SIMD WebP bundle with the shipped files.
+- Added `tests/avif-container.php`, a WordPress-free regression suite for the AVIF container validators and the format helpers, and wired it into CI.
+- Renamed the plugin to IndexLane Safe WebP & AVIF Queue and refreshed the WordPress.org title, tags, description, FAQ, CLI labels and report copy for the new format.
+
 ## 1.1.1 - 2026-10-02
 
 - Resolved Plugin Check filesystem errors in the pure-PHP encoder's JPEG metadata reader with documented, call-specific exceptions. WordPress's filesystem API cannot stream or seek through JPEG markers, so the reader keeps its bounded, read-only access and existing EXIF rotation and mirror protection.

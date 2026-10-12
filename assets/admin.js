@@ -15,6 +15,7 @@
 	var queueTimer = null;
 	var browserConfig = ILSWQ_Admin.browser || null;
 	var browserEnabled = !!(browserConfig && browserConfig.enabled);
+	var browserFormat = browserConfig && browserConfig.format === 'avif' ? 'avif' : 'webp';
 	var phpEnabled = !!(ILSWQ_Admin.settings && parseInt(ILSWQ_Admin.settings.php_conversion, 10) === 1);
 	// wp_localize_script casts top-level scalars to strings, so compare explicitly.
 	var serverWriter = ILSWQ_Admin.serverWriter === true || ILSWQ_Admin.serverWriter === '1';
@@ -37,6 +38,8 @@
 			max_pixels: parseInt($form.find('[name="max_pixels"]').val(), 10) || 16000000,
 			jpeg_quality: parseInt($form.find('[name="jpeg_quality"]').val(), 10) || 82,
 			png_quality: parseInt($form.find('[name="png_quality"]').val(), 10) || 90,
+			avif_quality: parseInt($form.find('[name="avif_quality"]').val(), 10) || 60,
+			browser_format: $form.find('[name="browser_format"]').val() === 'avif' ? 'avif' : 'webp',
 			skip_larger: $form.find('[name="skip_larger"]').is(':checked') ? 1 : 0,
 			serve_webp: $form.find('[name="serve_webp"]').is(':checked') ? 1 : 0,
 			auto_uploads: $form.find('[name="auto_uploads"]').is(':checked') ? 1 : 0,
@@ -361,7 +364,7 @@
 			'<td>' + escapeHtml(row.dimensions) + '</td>',
 			'<td>' + escapeHtml(row.original_size_label) + '</td>',
 			'<td>' + escapeHtml(row.estimated_memory_label) + '</td>',
-			'<td>' + escapeHtml(row.webp_size_label) + '</td>',
+			'<td>' + escapeHtml(row.webp_size_label) + (row.format_label ? '<br><span class="ilswq-muted">' + escapeHtml(row.format_label) + '</span>' : '') + '</td>',
 			'<td>' + escapeHtml(row.savings) + '</td>',
 			'<td>' + escapeHtml(row.editor) + '</td>',
 			'<td><span class="ilswq-status is-' + escapeHtml(row.status_key) + '">' + escapeHtml(row.status) + '</span></td>',
@@ -719,7 +722,7 @@
 		browserSupport.ok = false;
 		browserSupport.pending = true;
 		import(browserConfig.bundleUrl).then(function (module) {
-			return module.probeBrowserEncoder();
+			return module.probeBrowserEncoder(browserFormat);
 		}).then(function () {
 			browserSupport = { ok: true, insecure: false, missing: [] };
 			updateButtons();
@@ -983,7 +986,8 @@
 			{
 				prepareUrl: browserConfig.prepareUrl,
 				finishUrl: browserConfig.finishUrl,
-				nonce: browserConfig.nonce
+				nonce: browserConfig.nonce,
+				format: browserFormat
 			},
 			chunk.map(function (variant) {
 				return { attachmentId: variant.attachmentId, sizeKey: variant.sizeKey };
@@ -1186,11 +1190,12 @@
 
 		var nextBrowserEnabled = getSettings().browser_conversion === 1;
 		var nextPhpEnabled = getSettings().php_conversion === 1;
+		var nextFormat = getSettings().browser_format;
 
 		ajax('ilswq_save_settings', {
 			settings: getSettings()
 		}).then(function () {
-			if ((nextBrowserEnabled !== browserEnabled || nextPhpEnabled !== phpEnabled) && window.location && typeof window.location.reload === 'function') {
+			if ((nextBrowserEnabled !== browserEnabled || nextPhpEnabled !== phpEnabled || nextFormat !== browserFormat) && window.location && typeof window.location.reload === 'function') {
 				window.location.reload();
 				return;
 			}

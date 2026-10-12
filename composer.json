@@ -1,6 +1,6 @@
 {
     "name": "indexlane/indexlane-safe-webp-queue",
-    "description": "WordPress plugin that creates WebP copies of Media Library images with the site's image editor, the browser, or a bundled pure-PHP encoder.",
+    "description": "WordPress plugin that creates WebP and AVIF copies of Media Library images. WebP supports server and browser conversion; AVIF uses the browser.",
     "type": "wordpress-plugin",
     "license": "GPL-2.0-or-later",
     "homepage": "https://indexlane.dev/plugins/safe-webp-queue",

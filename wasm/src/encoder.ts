@@ -1,10 +1,10 @@
-import { LIMITS, assertWebP, isEncodeOptions, isEncodeResponse, positiveInteger } from './protocol';
-import type { EncodeOptions, EncodeRequest, EncodeResult } from './protocol';
+import { LIMITS, assertOutput, isEncodeOptions, isEncodeResponse, positiveInteger } from './protocol';
+import type { EncodeOptions, EncodeRequest, EncodeResult, OutputFormat } from './protocol';
 
 export interface EncodeControl { readonly signal?: AbortSignal; readonly timeoutMs?: number }
 
 /** Prove module-worker support and load the actual codec under this site's CSP. */
-export function probeBrowserEncoder(): Promise<void> {
+export function probeBrowserEncoder(format: OutputFormat = 'webp'): Promise<void> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
     const finish = (error?: Error): void => {
@@ -20,14 +20,14 @@ export function probeBrowserEncoder(): Promise<void> {
       if (event.data?.type !== 'probe') return;
       finish(event.data.ok ? undefined : new Error(event.data.message || 'Browser encoder unavailable.'));
     };
-    worker.postMessage({ type: 'probe' });
+    worker.postMessage({ type: 'probe', format });
   });
 }
 
 /** Transfers ownership of `bytes`; its ArrayBuffer is detached after dispatch. */
-export async function encodeWebP(
+export async function encodeImage(
   bytes: ArrayBuffer,
-  options: EncodeOptions = { quality: 80, lossless: false },
+  options: EncodeOptions = { format: 'webp', quality: 80, lossless: false },
   control: EncodeControl = {},
 ): Promise<EncodeResult> {
   if (!positiveInteger(bytes.byteLength, LIMITS.sourceBytes)) throw new Error('Invalid source size.');
@@ -63,11 +63,14 @@ export async function encodeWebP(
       }
       if (event.data.type === 'error') { finish(new Error(event.data.message)); return; }
       try {
-        assertWebP(event.data.bytes);
+        if (event.data.mimeType !== (options.format === 'avif' ? 'image/avif' : 'image/webp')) {
+          throw new Error('Worker returned an unexpected image format.');
+        }
+        assertOutput(event.data.bytes, options.format);
         if (event.data.sourceBytes !== sourceBytes) throw new Error('Worker source size differs.');
         finish(event.data);
       } catch (error: unknown) {
-        finish(error instanceof Error ? error : new Error('Invalid WebP output.'));
+        finish(error instanceof Error ? error : new Error('Invalid image output.'));
       }
     };
     if (control.signal?.aborted) { abort(); return; }

@@ -2,8 +2,8 @@
 /**
  * Plugin uninstall handler.
  *
- * Generated WebP files are not deleted automatically on uninstall. Use the
- * explicit cleanup button in Tools -> IndexLane Safe WebP Queue before uninstalling when
+ * Generated image files are not deleted automatically on uninstall. Use the
+ * explicit cleanup button in Tools -> IndexLane Safe WebP & AVIF Queue before uninstalling when
  * you want those files removed.
  *
  * @package IndexLaneSafeWebPQueue

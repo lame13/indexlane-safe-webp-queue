@@ -293,7 +293,7 @@ foreach ( $status_items['items'] as $row ) {
 	$status_labels[] = (string) $row['label'];
 }
 
-foreach ( array( 'Plugin version', 'Generated WebP files', 'Queue state' ) as $expected_label ) {
+foreach ( array( 'Plugin version', 'Generated image files', 'Queue state' ) as $expected_label ) {
 	if ( ! in_array( $expected_label, $status_labels, true ) ) {
 		ilswq_cli_fail( 'wp ilswq status omitted the ' . $expected_label . ' row.' );
 	}

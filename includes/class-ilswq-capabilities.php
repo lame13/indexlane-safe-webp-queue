@@ -178,7 +178,7 @@ class ILSWQ_Capabilities {
 			__( 'Uploads directory', 'indexlane-safe-webp-queue' ),
 			$uploads_writable ? __( 'Writable', 'indexlane-safe-webp-queue' ) : __( 'Not writable', 'indexlane-safe-webp-queue' ),
 			$uploads_writable ? 'pass' : 'fail',
-			__( 'Generated WebP files are written beside their source files.', 'indexlane-safe-webp-queue' )
+			__( 'Generated WebP and AVIF files are written beside their source files.', 'indexlane-safe-webp-queue' )
 		);
 
 		return $checks;

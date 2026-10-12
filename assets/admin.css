@@ -80,8 +80,10 @@
 	font-weight: 600;
 }
 
-.ilswq-settings-form input[type="number"] {
+.ilswq-settings-form input[type="number"],
+.ilswq-settings-form select {
 	width: 100%;
+	min-width: 0;
 }
 
 .ilswq-settings-form .ilswq-checkbox {

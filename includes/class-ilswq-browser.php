@@ -21,7 +21,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class ILSWQ_Browser {
 	const REST_NAMESPACE = 'ilswq-wasm/v1';
-	const VERSION        = 'wasm-webp-v1';
+	const VERSION        = 'wasm-v2';
 	const TOKEN_TTL      = 600;
 	const MAX_INPUT      = 20971520;
 	const MAX_OUTPUT     = 33554432;
@@ -63,12 +63,17 @@ class ILSWQ_Browser {
 	 * @return array<string, mixed>
 	 */
 	public static function admin_config() {
+		$settings = ILSWQ_Settings::get();
+		$format   = ILSWQ_Scanner::normalize_format( $settings['browser_format'] );
+
 		return array(
-			'enabled'    => self::is_enabled(),
-			'prepareUrl' => rest_url( self::REST_NAMESPACE . '/prepare' ),
-			'finishUrl'  => rest_url( self::REST_NAMESPACE . '/finish' ),
-			'nonce'      => wp_create_nonce( 'wp_rest' ),
-			'bundleUrl'  => add_query_arg( 'ver', ILSWQ_VERSION, ILSWQ_URL . 'assets/wasm/safewebp-browser.js' ),
+			'enabled'      => self::is_enabled(),
+			'format'       => $format,
+			'formatLabel'  => ILSWQ_Scanner::format_label( $format ),
+			'prepareUrl'   => rest_url( self::REST_NAMESPACE . '/prepare' ),
+			'finishUrl'    => rest_url( self::REST_NAMESPACE . '/finish' ),
+			'nonce'        => wp_create_nonce( 'wp_rest' ),
+			'bundleUrl'    => add_query_arg( 'ver', ILSWQ_VERSION, ILSWQ_URL . 'assets/wasm/safewebp-browser.js' ),
 		);
 	}
 
@@ -159,12 +164,17 @@ class ILSWQ_Browser {
 	public static function prepare( $request ) {
 		$attachment_id = absint( $request->get_param( 'attachmentId' ) );
 		$size_key      = sanitize_text_field( (string) $request->get_param( 'sizeKey' ) );
+		$settings      = ILSWQ_Settings::get();
+		$requested     = $request->get_param( 'format' );
+		$format        = ILSWQ_Scanner::normalize_format(
+			is_string( $requested ) && '' !== $requested ? $requested : $settings['browser_format']
+		);
 
 		if ( $attachment_id < 1 || '' === $size_key ) {
 			return new WP_Error( 'ilswq_browser_request', __( 'An attachment and size are required.', 'indexlane-safe-webp-queue' ), array( 'status' => 400 ) );
 		}
 
-		$resolved = self::resolve_source( $attachment_id, $size_key );
+		$resolved = self::resolve_source( $attachment_id, $size_key, $format );
 		if ( is_wp_error( $resolved ) ) {
 			return $resolved;
 		}
@@ -190,7 +200,7 @@ class ILSWQ_Browser {
 			return new WP_Error( 'ilswq_browser_source', __( 'The source image is not readable.', 'indexlane-safe-webp-queue' ), array( 'status' => 409 ) );
 		}
 
-		$quality  = (int) ILSWQ_Settings::quality_for_mime( (string) $source['mime_type'], ILSWQ_Settings::get() );
+		$quality  = (int) ILSWQ_Settings::quality_for_format( (string) $source['mime_type'], $format, $settings );
 		$token    = wp_generate_password( 43, false, false );
 		$job      = array(
 			'userId'       => get_current_user_id(),
@@ -201,6 +211,7 @@ class ILSWQ_Browser {
 			'inputBytes'   => (int) $input_bytes,
 			'width'        => (int) $source['width'],
 			'height'       => (int) $source['height'],
+			'format'       => $format,
 			'quality'      => $quality,
 			'version'      => self::VERSION,
 			'expires'      => time() + self::TOKEN_TTL,
@@ -220,6 +231,7 @@ class ILSWQ_Browser {
 				'height'       => $job['height'],
 				'inputBytes'   => $job['inputBytes'],
 				'mimeType'     => (string) $source['mime_type'],
+				'format'       => $job['format'],
 				'quality'      => $quality,
 				'version'      => self::VERSION,
 				'attachmentId' => $attachment_id,
@@ -295,9 +307,11 @@ class ILSWQ_Browser {
 			return new WP_Error( 'ilswq_browser_output', __( 'The converted image is empty or too large.', 'indexlane-safe-webp-queue' ), array( 'status' => 413 ) );
 		}
 
-		$dimensions = self::webp_dimensions( $bytes );
+		$format     = ILSWQ_Scanner::normalize_format( isset( $job['format'] ) ? $job['format'] : 'webp' );
+		$dimensions = self::output_dimensions( $bytes, $format );
 		if ( null === $dimensions ) {
-			return new WP_Error( 'ilswq_browser_container', __( 'The converted image is not a supported still WebP file.', 'indexlane-safe-webp-queue' ), array( 'status' => 400 ) );
+			/* translators: %s: output format label, such as "AVIF". */
+			return new WP_Error( 'ilswq_browser_container', sprintf( __( 'The converted image is not a supported still %s file.', 'indexlane-safe-webp-queue' ), ILSWQ_Scanner::format_label( $format ) ), array( 'status' => 400 ) );
 		}
 		if ( $dimensions[0] !== (int) $job['width'] || $dimensions[1] !== (int) $job['height'] ) {
 			return new WP_Error( 'ilswq_browser_dimensions', __( 'The converted image size does not match its source.', 'indexlane-safe-webp-queue' ), array( 'status' => 400 ) );
@@ -312,7 +326,7 @@ class ILSWQ_Browser {
 			return new WP_Error( 'ilswq_browser_stale', __( 'The source image changed while it was converting. Convert it again.', 'indexlane-safe-webp-queue' ), array( 'status' => 409 ) );
 		}
 
-		$resolved = self::resolve_source( (int) $job['attachmentId'], (string) $job['sizeKey'] );
+		$resolved = self::resolve_source( (int) $job['attachmentId'], (string) $job['sizeKey'], $format );
 		if ( is_wp_error( $resolved ) ) {
 			return $resolved;
 		}
@@ -322,7 +336,7 @@ class ILSWQ_Browser {
 		if ( $path !== wp_normalize_path( (string) $source['path'] ) || (int) $source['width'] !== (int) $job['width'] || (int) $source['height'] !== (int) $job['height'] ) {
 			return new WP_Error( 'ilswq_browser_stale', __( 'The source image changed while it was converting. Convert it again.', 'indexlane-safe-webp-queue' ), array( 'status' => 409 ) );
 		}
-		if ( (int) $job['quality'] !== ILSWQ_Settings::quality_for_mime( (string) $source['mime_type'], $settings ) ) {
+		if ( (int) $job['quality'] !== ILSWQ_Settings::quality_for_format( (string) $source['mime_type'], $format, $settings ) ) {
 			return new WP_Error( 'ilswq_browser_settings', __( 'The quality setting changed while this image was converting. Convert it again.', 'indexlane-safe-webp-queue' ), array( 'status' => 409 ) );
 		}
 
@@ -331,8 +345,9 @@ class ILSWQ_Browser {
 			(int) $job['attachmentId'],
 			$source,
 			$bytes,
-			'WASM (browser)',
-			$settings
+			'avif' === $format ? 'WASM AVIF (browser)' : 'WASM (browser)',
+			$settings,
+			$format
 		);
 
 		if ( is_wp_error( $result ) ) {
@@ -366,6 +381,7 @@ class ILSWQ_Browser {
 				'width'         => $dimensions[0],
 				'height'        => $dimensions[1],
 				'outputUrl'     => ILSWQ_Scanner::path_to_url( (string) ( $entry['webp'] ?? '' ) ),
+				'format'        => $format,
 				'outputSha256'  => hash( 'sha256', $bytes ),
 				'sourceSha256'  => (string) $job['sha256'],
 				'attachmentId'  => (int) $job['attachmentId'],
@@ -386,15 +402,18 @@ class ILSWQ_Browser {
 	 *
 	 * @param int    $attachment_id Attachment ID.
 	 * @param string $size_key Size key.
+	 * @param string $format Requested output format.
 	 * @return array<string, mixed>|WP_Error
 	 */
-	private static function resolve_source( $attachment_id, $size_key ) {
+	private static function resolve_source( $attachment_id, $size_key, $format = 'webp' ) {
+		$format = ILSWQ_Scanner::normalize_format( $format );
+
 		if ( 'attachment' !== get_post_type( $attachment_id ) ) {
 			return new WP_Error( 'ilswq_browser_attachment', __( 'Unknown attachment.', 'indexlane-safe-webp-queue' ), array( 'status' => 404 ) );
 		}
 
 		if ( ILSWQ_Scanner::is_excluded( $attachment_id ) ) {
-			return new WP_Error( 'ilswq_browser_excluded', __( 'This image is excluded from WebP conversion.', 'indexlane-safe-webp-queue' ), array( 'status' => 409 ) );
+			return new WP_Error( 'ilswq_browser_excluded', __( 'This image is excluded from image conversion.', 'indexlane-safe-webp-queue' ), array( 'status' => 409 ) );
 		}
 
 		$scanner = new ILSWQ_Scanner();
@@ -434,13 +453,19 @@ class ILSWQ_Browser {
 			return new WP_Error( 'ilswq_browser_pixels', __( 'Image exceeds max pixel limit', 'indexlane-safe-webp-queue' ), array( 'status' => 413 ) );
 		}
 
-		$record = null;
-		if ( 'converted' === $match['status_key'] ) {
-			$record = $match['existing_plugin_webp_entry'];
-		} elseif ( 'conflict' === $match['status_key'] ) {
-			return new WP_Error( 'ilswq_browser_conflict', $match['reason'], array( 'status' => 409 ) );
-		} elseif ( empty( $match['eligible'] ) ) {
-			return new WP_Error( 'ilswq_browser_source', $match['reason'], array( 'status' => 409 ) );
+		// A stored entry for this exact format means the file is already done.
+		// Ownership is per format, so a WebP copy does not block adding AVIF.
+		$record = isset( $match['generated_entries'][ $format ] ) ? $match['generated_entries'][ $format ] : null;
+		if ( null === $record ) {
+			$output_path = ILSWQ_Scanner::output_path( $path, $format );
+			if ( file_exists( $output_path ) && empty( $match['owned_entries'][ $format ] ) ) {
+				return new WP_Error(
+					'ilswq_browser_conflict',
+					/* translators: %s: output format label, such as "AVIF". */
+					sprintf( __( 'A sibling %s file is in the way.', 'indexlane-safe-webp-queue' ), ILSWQ_Scanner::format_label( $format ) ),
+					array( 'status' => 409 )
+				);
+			}
 		}
 
 		return array(
@@ -465,6 +490,7 @@ class ILSWQ_Browser {
 			'height'       => isset( $record['height'] ) ? (int) $record['height'] : (int) $source['height'],
 			'outputUrl'    => isset( $record['webp'] ) ? ILSWQ_Scanner::path_to_url( (string) $record['webp'] ) : '',
 			'editor'       => isset( $record['editor'] ) ? (string) $record['editor'] : '',
+			'format'       => ILSWQ_Scanner::entry_format( $record ),
 			'version'      => self::VERSION,
 		);
 	}
@@ -599,6 +625,179 @@ class ILSWQ_Browser {
 		}
 
 		return $image;
+	}
+
+	/**
+	 * Validate a generated container for one format and return its dimensions.
+	 *
+	 * @param string $bytes File bytes.
+	 * @param string $format Output format.
+	 * @return array<int, int>|null [width, height] or null when invalid.
+	 */
+	public static function output_dimensions( $bytes, $format = 'webp' ) {
+		return 'avif' === ILSWQ_Scanner::normalize_format( $format )
+			? self::avif_dimensions( $bytes )
+			: self::webp_dimensions( $bytes );
+	}
+
+	/**
+	 * Validate a still AVIF (ISO-BMFF) container and return its canvas size.
+	 *
+	 * This walks the box tree far enough to prove the file is a still AVIF
+	 * image carrying an `ispe` spatial-extents box; it does not decode pixels.
+	 * Animated sequences (`moov`) and non-AVIF HEIF brands are refused, and a
+	 * 64-bit box size (largesize) or a box that overruns its parent is treated
+	 * as malformed rather than reported to the administrator as a valid image.
+	 *
+	 * @param string $bytes File bytes.
+	 * @return array<int, int>|null [width, height] or null when invalid.
+	 */
+	public static function avif_dimensions( $bytes ) {
+		$total = strlen( $bytes );
+		if ( $total < 32 || $total > self::MAX_OUTPUT ) {
+			return null;
+		}
+
+		if ( ! self::is_still_avif_brand( $bytes ) ) {
+			return null;
+		}
+
+		$meta     = null;
+		$has_data = false;
+		$position = 0;
+		$seen     = 0;
+
+		while ( $position + 8 <= $total && $seen < 64 ) {
+			++$seen;
+			$size = self::be32( $bytes, $position );
+			$type = substr( $bytes, $position + 4, 4 );
+
+			if ( 'moov' === $type ) {
+				// An animated AVIF sequence, not a single still image.
+				return null;
+			}
+			if ( $size < 8 ) {
+				return null;
+			}
+
+			$body = $position + 8;
+			$end  = $body + $size - 8;
+			if ( $end > $total ) {
+				return null;
+			}
+			if ( 'mdat' === $type && $size > 8 ) {
+				$has_data = true;
+			}
+			if ( 'meta' === $type ) {
+				if ( null !== $meta ) {
+					return null;
+				}
+				$meta = array(
+					'start' => $body,
+					'end'   => $end,
+				);
+			}
+
+			$position = $end;
+		}
+
+		if ( null === $meta || ! $has_data || $position !== $total ) {
+			return null;
+		}
+
+		// `meta` is a FullBox: skip its version and flags before the children.
+		$children = $meta['start'] + 4;
+		if ( $children > $meta['end'] || 0 !== self::be32( $bytes, $meta['start'] ) ) {
+			return null;
+		}
+
+		$iprp = self::find_child_box( $bytes, $children, $meta['end'], 'iprp' );
+		if ( null === $iprp ) {
+			return null;
+		}
+		$ipco = self::find_child_box( $bytes, $iprp['start'], $iprp['end'], 'ipco' );
+		if ( null === $ipco ) {
+			return null;
+		}
+		$ispe = self::find_child_box( $bytes, $ipco['start'], $ipco['end'], 'ispe' );
+		if ( null === $ispe || ( $ispe['start'] + 12 ) !== $ispe['end'] || 0 !== self::be32( $bytes, $ispe['start'] ) ) {
+			return null;
+		}
+
+		$width  = self::be32( $bytes, $ispe['start'] + 4 );
+		$height = self::be32( $bytes, $ispe['start'] + 8 );
+		if ( $width < 1 || $height < 1 || $width > self::MAX_AXIS || $height > self::MAX_AXIS ) {
+			return null;
+		}
+		if ( ( $width * $height ) > self::MAX_PIXELS ) {
+			return null;
+		}
+
+		return array( $width, $height );
+	}
+
+	/**
+	 * Return true when a header describes a still AVIF image.
+	 *
+	 * @param string $bytes File bytes.
+	 * @return bool
+	 */
+	private static function is_still_avif_brand( $bytes ) {
+		return null !== ILSWQ_Scanner::avif_brand( $bytes );
+	}
+
+	/**
+	 * Find a direct child box by type inside a byte range.
+	 *
+	 * @param string $bytes File bytes.
+	 * @param int    $start Range start (first child box).
+	 * @param int    $end Range end.
+	 * @param string $type Four-character box type.
+	 * @return array<string, int>|null
+	 */
+	private static function find_child_box( $bytes, $start, $end, $type ) {
+		$position = max( 0, $start );
+		$seen     = 0;
+		$found    = null;
+
+		while ( $position + 8 <= $end && $seen < 256 ) {
+			++$seen;
+			$size = self::be32( $bytes, $position );
+			if ( $size < 8 ) {
+				return null;
+			}
+
+			$tag  = substr( $bytes, $position + 4, 4 );
+			$body = $position + 8;
+			$box_end = $body + $size - 8;
+			if ( $box_end > $end ) {
+				return null;
+			}
+			if ( $tag === $type ) {
+				if ( null !== $found && substr( $bytes, $found['start'], $found['end'] - $found['start'] ) !== substr( $bytes, $body, $box_end - $body ) ) {
+					return null;
+				}
+				$found = array(
+					'start' => $body,
+					'end'   => $box_end,
+				);
+			}
+
+			$position = $box_end;
+		}
+
+		return $position === $end ? $found : null;
+	}
+
+	/**
+	 * Big-endian 32-bit integer (ISO-BMFF box fields).
+	 *
+	 * @param string $bytes Bytes.
+	 * @param int    $at Offset.
+	 * @return int
+	 */
+	private static function be32( $bytes, $at ) {
+		return unpack( 'N', substr( $bytes, $at, 4 ) )[1];
 	}
 
 	/**

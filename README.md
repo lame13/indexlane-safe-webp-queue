@@ -1,23 +1,25 @@
-# IndexLane Safe WebP Queue
+# IndexLane Safe WebP & AVIF Queue
 
-**Smaller images, without another subscription.**
+**Smaller images, without another subscription.** WebP and AVIF, no credits, no API key.
 
-Your hosting plan may be light on image tools. Your images don't have to stay heavy. Create WebP copies right from your WordPress admin, without paying for an image-conversion API or asking your host to install missing libraries. Keep your original JPEGs and PNGs, and choose when to serve the WebP copies.
+Your hosting plan may be light on image tools. Your images don't have to stay heavy. Create WebP or AVIF copies right from your WordPress admin, without paying for an image-conversion API or asking your host to install missing libraries. Keep your original JPEGs and PNGs, and choose when to serve the generated copies.
 
-Shared hosting can lack WebP support or enough PHP memory for image conversion. Enable **Convert images in the browser** and your computer does the encoding with the plugin's bundled WebAssembly encoder. Each source comes from your own site; each finished WebP goes back there. There is no desktop app or browser extension to install.
+Shared hosting can lack WebP support or enough PHP memory for image conversion. Enable **Convert images in the browser** and your computer does the encoding with the plugin's bundled WebAssembly encoder. Each source comes from your own site; each finished image goes back there. There is no desktop app or browser extension to install.
+
+Choose **WebP** or **AVIF** under **Browser conversion format**. AVIF can produce smaller files, depending on the image and quality settings. It is offered through a `<picture>` element when all responsive candidates have matching AVIF copies; WebP or your original image remains the fallback. AVIF is browser-only in this version: GD and Imagick cannot be relied on to encode AVIF on shared hosting.
 
 If WordPress has GD or Imagick with WebP support, server conversion can handle selected images, the whole library, and future uploads in background batches. On PHP 8.1+ the bundled pure-PHP encoder does the same even when no image editor can write WebP. The standalone `cwebp` command is not used by this version.
 
 ## Try it on a few images
 
-1. Open **Tools → IndexLane Safe WebP Queue** and check server support. Enable browser conversion if you need it.
+1. Open **Tools → IndexLane Safe WebP & AVIF Queue** and check server support. Enable browser conversion if you need it.
 2. Scan the library and select a few images. Use **Convert Selected** for a server job or **Convert Selected in Browser** to use your computer.
 3. Review file sizes, savings, and any skip reasons. Both methods include generated attachment sizes.
-4. Enable optional frontend serving when you want matching WebP copies used in normal WordPress image output.
+4. Enable optional frontend serving when you want matching WebP and AVIF copies used in normal WordPress image output.
 
-Keep the tab open for browser conversion. Server jobs save progress and can continue through WP-Cron, which depends on site traffic or a configured cron runner. Whole-library jobs and automatic uploads need server WebP support.
+Keep the tab open for browser conversion, including AVIF runs. Server jobs save progress and can continue through WP-Cron, which depends on site traffic or a configured cron runner. Whole-library jobs and automatic uploads need server WebP support and always produce WebP.
 
-Search and filter the report, export matching rows as CSV, or manage status and exclusions from the Media Library list. Stored totals cover both conversion methods. Originals stay in place, foreign WebPs are protected, and new copies that are not smaller are skipped by default.
+Search and filter the report, export matching rows as CSV, or manage status and exclusions from the Media Library list. Stored totals cover both conversion methods. Originals stay in place, foreign output files are protected, and new copies that are not smaller are skipped by default.
 
 [Plugin details](https://indexlane.dev/plugins/safe-webp-queue) · [Full description and FAQs](readme.txt)
 
@@ -27,7 +29,9 @@ The [plugin description](readme.txt) includes compression and timing comparisons
 
 ## Browser conversion
 
-Browser conversion is the second conversion backend. Instead of `wp_get_image_editor()`, the administrator's browser downloads the source file from the site, encodes WebP in a Web Worker with the bundled WebAssembly codec, and uploads the finished file to a REST endpoint. The server still authorises the work, validates the returned container and writes the sidecar, so a browser conversion produces exactly the same stored metadata, savings totals and frontend output as a server conversion; only the `editor` label differs (`WASM (browser)`).
+Browser conversion is the second conversion backend. Instead of `wp_get_image_editor()`, the administrator's browser downloads the source file from the site, encodes it in a Web Worker with the bundled WebAssembly codec, and uploads the finished file to a REST endpoint. The server still authorises the work, validates the returned container and writes the sidecar, so a browser conversion produces exactly the same stored metadata, savings totals and frontend output as a server conversion; only the `editor` label differs (`WASM (browser)` or `WASM AVIF (browser)`).
+
+The browser worker carries two codecs. WebP comes from libwebp through `@jsquash/webp`. AVIF comes from a single-threaded libavif/libaom build brought in with `@jsquash/avif`; the multithreaded variant is avoided so the bundle never needs `SharedArrayBuffer` or COOP/COEP headers. Only the codec for the configured format is loaded. The browser checks the AVIF brand and decodes the result to verify its dimensions; the server checks the still ISO-BMFF container and its `ispe` dimensions. Because ownership is tracked per format, a library can hold both a WebP and an AVIF copy of the same file.
 
 It is off by default and attended: the tab has to stay open, and one image is processed at a time. It never replaces the queue for unattended work.
 
@@ -71,7 +75,7 @@ The script reads the installed Composer package, or the local `codec/picowebp` c
 
 The plugin converts JPEG and PNG Media Library attachments. It preserves saved post content and attachment URLs. Frontend serving works through normal WordPress image-output filters; it does not rewrite saved image HTML, CSS backgrounds, theme files, page builder fields, or hardcoded URLs. GIF, SVG, AVIF, and existing WebP files are outside its conversion scope.
 
-Smaller WebP copies can reduce the image data visitors download when those copies are served. Results depend on your images and site. Keeping both formats uses additional disk space.
+Smaller WebP and AVIF copies can reduce the image data visitors download when those copies are served. Results depend on your images and site. Keeping the originals, a WebP copy and an AVIF copy uses additional disk space.
 
 See [readme.txt](readme.txt) for installation steps, FAQs, and release history.
 
@@ -83,10 +87,13 @@ Run the JavaScript regression checks and translation audit:
 node --check assets/admin.js
 node tests/admin-js.js
 php tests/php-encoder.php
+php tests/avif-container.php
 bash scripts/check-i18n.sh
 ```
 
 `tests/php-encoder.php` checks automatic disabling without loading picowebp on older PHP runtimes. On PHP 8.1+ with zlib it exercises the bundled PNG/JPEG readers without GD, the enable setting, actual pixel limits, WebP output, ICC preservation, EXIF orientation protection and unsupported-input routing.
+
+`tests/avif-container.php` runs without WordPress. It builds still, animated, HEIF-branded, truncated and oversized AVIF containers and checks that the server-side box walk accepts only the still images, together with the format and generated-file helpers.
 
 The translation check requires PHP and WP-CLI. Build the release ZIP and WordPress.org SVN bundle with:
 

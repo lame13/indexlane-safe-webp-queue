@@ -1,29 +1,30 @@
-=== IndexLane Safe WebP Queue ===
+=== IndexLane Safe WebP & AVIF Queue ===
 Contributors: wpfixpath
-Tags: webp, image optimization, images, media library, performance
+Tags: webp, avif, image optimization, media library, performance
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.1.1
+Stable tag: 1.2.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Create smaller WebP images while keeping your originals. Convert on your hosting or in your browser, with no cloud service, API key, or credits.
+Create WebP and AVIF copies while keeping originals. Convert on your hosting or in your browser, with no cloud service or API key.
 
 == Description ==
 
-**Smaller image downloads. Your originals stay safe.**
+**AVIF and WebP in one free plugin. Smaller image downloads, no credits, no API key, and your originals stay safe.**
 
-Turn your Media Library's JPEGs, PNGs, thumbnails, and other WordPress image sizes into WebP copies. Check the actual savings, then choose when your site starts serving them to visitors.
+Turn your Media Library's JPEGs, PNGs, thumbnails, and other WordPress image sizes into WebP or **AVIF** copies. AVIF can produce smaller files than WebP; results depend on your images and quality settings. Check the actual savings, then choose when your site starts serving them to visitors.
 
-Safe WebP Queue works with your hosting's image tools, a bundled browser encoder, or an optional built-in PHP encoder. Even if your host can display WebP but cannot create it, you still have a way to convert. Your original JPEGs and PNGs stay where they are.
+Safe WebP & AVIF Queue works with your hosting's image tools, a bundled browser encoder, or an optional built-in PHP encoder. Even if your host can display WebP or AVIF but cannot create them, you still have a way to convert. Your original JPEGs and PNGs stay where they are.
 
 No subscription, conversion credits, API key, or external conversion service. Everything needed for conversion is included in the plugin.
 
-* **Keep control:** scan first, convert a few images, and review the results before serving WebP.
+* **Keep control:** scan first, convert a few images, and review the results before serving the generated copies.
 * **Work at your pace:** use resumable background jobs or selected browser conversions.
 * **See what you saved:** inspect file sizes and savings, search the report, or export it as CSV.
 * **Keep your originals:** remove this plugin's generated copies whenever you need to.
+* **Go smaller:** choose AVIF in the browser converter and compare the results, with WebP or the original image as the fallback.
 
 The plugin supports **PHP 7.4 and newer**. The optional picowebp backend is detected automatically and stays unavailable on PHP 7.4 or 8.0; the rest of the plugin continues to work.
 
@@ -34,6 +35,8 @@ Enable **Convert images in the browser**, scan your Media Library, select a few 
 The bundled encoder uses WebAssembly to run on your computer. There's no desktop app or browser extension to install. Keep the plugin page open while it processes each file, including existing thumbnails and other WordPress sizes. You'll see progress and a result for each one.
 
 You can stop a run and return later. Completed copies stay saved; a new scan shows what remains.
+
+Choose **WebP** or **AVIF** under **Browser conversion format**. AVIF can produce smaller files than WebP, and the browser encoder is included either way. Set **AVIF quality** to taste; 60 is a good starting point. AVIF encoding is slower than WebP, so allow more time for large images.
 
 The panel checks browser support before enabling conversion. You need HTTPS and enough memory on your computer. Browser conversion works with images served from the same origin as your admin; the FAQ explains file limits and restrictions for separately hosted media.
 
@@ -55,15 +58,17 @@ PHP encoding is much slower than the other methods. It is limited to **2 million
 
 = Review the results =
 
-See original and WebP sizes, savings, the conversion method, and reasons for skipped or failed files. Search and filter the report, or export matching rows as CSV. JPEG and PNG quality can be adjusted separately.
+See original and generated sizes, savings, the conversion method, and reasons for skipped or failed files. Search and filter the report, or export matching rows as CSV. WebP quality for JPEG and PNG sources can be adjusted separately; AVIF has its own quality setting.
 
-By default, a new WebP is skipped if it's the same size or larger than its source. Files created by other tools are left alone: an existing WebP the plugin doesn't own is reported as a conflict.
+By default, a new WebP or AVIF copy is skipped if it's the same size or larger than its source. Files created by other tools are left alone: an existing output file the plugin doesn't own is reported as a conflict.
 
-The Media Library shows status and savings too. You can exclude images from conversion and serving, or use **Delete Generated WebPs** to remove this plugin's copies while keeping your originals.
+The Media Library shows status and savings too. You can exclude images from conversion and serving, or use **Delete Generated Images** to remove this plugin's copies while keeping your originals.
 
-= Choose when visitors receive WebP =
+= Choose when visitors receive WebP and AVIF =
 
-**Serve WebP on the front end** starts off. Review your conversions, then enable it to use matching copies in normal WordPress image output. Images without a matching copy keep their existing format.
+**Use generated WebP and AVIF in WordPress image output** starts off. Review your conversions, then enable it to use matching copies in normal WordPress image output. Images without a matching copy keep their existing format.
+
+WebP is served by swapping the image URL, because every current browser reads WebP. AVIF is newer, so it is served through a `<picture>` element with WebP or your original image as the fallback: supported browsers download the smaller AVIF file, while browsers without AVIF support use the fallback. AVIF is offered when every responsive candidate has a matching copy, preserving the original crops and sizes.
 
 The plugin doesn't rewrite saved posts, attachment URLs, CSS backgrounds, page builder fields, theme files, or hardcoded image markup. It converts JPEG and PNG attachments and their generated sizes.
 
@@ -107,31 +112,31 @@ Photo: [Fronalpstock by Hannes Röst](https://commons.wikimedia.org/wiki/File:Fr
 
 = Start with a few images =
 
-Open **Tools -> IndexLane Safe WebP Queue**, scan your library, and try a few images. Check the results before enabling frontend serving or converting more. Command-line users can also manage server jobs and reports through WP-CLI; see the FAQ.
+Open **Tools -> IndexLane Safe WebP & AVIF Queue**, scan your library, and try a few images. Check the results before enabling frontend serving or converting more. Command-line users can also manage server jobs and reports through WP-CLI; see the FAQ.
 
 [Plugin details and documentation](https://indexlane.dev/plugins/safe-webp-queue).
 
 == Installation ==
 
-1. Install and activate IndexLane Safe WebP Queue from Plugins in WordPress, or upload the plugin folder to /wp-content/plugins/.
-2. Open **Tools -> IndexLane Safe WebP Queue** and check the server support panel. Use your host's WebP image tools, enable **Convert images in the browser**, or enable the optional **built-in PHP encoder** when its requirements are met.
+1. Install and activate IndexLane Safe WebP & AVIF Queue from Plugins in WordPress, or upload the plugin folder to /wp-content/plugins/.
+2. Open **Tools -> IndexLane Safe WebP & AVIF Queue** and check the server support panel. Use your host's WebP image tools, enable **Convert images in the browser**, or enable the optional **built-in PHP encoder** when its requirements are met.
 3. Click **Scan Media Library** and select a few eligible images.
 4. Choose **Convert Selected** for server conversion, or **Convert Selected in Browser** for browser conversion. Keep the page open during a browser run.
-5. Review the file sizes, savings, and any skip reasons. Enable **Serve WebP on the front end** in Settings when you're ready to use matching copies on your site.
+5. Review the file sizes, savings, and any skip reasons. Enable **Use generated WebP and AVIF in WordPress image output** in Settings when you're ready to use matching copies on your site.
 
 == Frequently Asked Questions ==
 
-= Does version 1.1.1 still work on PHP 7.4? =
+= Does version 1.2.1 still work on PHP 7.4? =
 
 Yes. The plugin still requires only PHP 7.4. picowebp is an optional conversion backend, not a requirement for using the plugin. On PHP 7.4 or 8.0 its library is not loaded and its setting is disabled automatically. Server conversion through compatible GD or Imagick, browser conversion, reports, and the other plugin features remain available.
 
-= Can I try WebP without losing my original images? =
+= Can I try WebP and AVIF without losing my original images? =
 
-Yes. The plugin saves WebP copies beside your JPEGs and PNGs, including generated attachment sizes. Your originals remain available. You can use **Delete Generated WebPs** to remove copies owned by this plugin; files created by other tools are left alone.
+Yes. The plugin saves WebP and AVIF copies beside your JPEGs and PNGs, including generated attachment sizes. Your originals remain available. You can use **Delete Generated Images** to remove copies owned by this plugin; files created by other tools are left alone.
 
-= Will my site use WebP as soon as I convert an image? =
+= Will my site use generated copies as soon as I convert an image? =
 
-You choose when. Frontend serving starts off. Enable it in Settings to use matching WebP copies where your theme or plugin requests images through normal WordPress image output. Images with no matching copy continue to use their existing format. Saved post content, attachment URLs, CSS backgrounds, and hardcoded image markup are not rewritten.
+You choose when. Frontend serving starts off. Enable it in Settings to use matching WebP and AVIF copies where your theme or plugin requests images through normal WordPress image output. Images with no matching copy continue to use their existing format. Saved post content, attachment URLs, CSS backgrounds, and hardcoded image markup are not rewritten.
 
 = Will every image be smaller? =
 
@@ -143,7 +148,7 @@ No. Conversion runs on your hosting or on your computer, depending on the method
 
 = What if my server cannot create WebP files? =
 
-Turn on **Convert images in the browser** in Queue Settings. The WebP encoder that ships with the plugin then runs inside your own browser, so the image data never goes to another server and nothing has to be installed on your computer or your host. Your browser sends the finished WebP file back to your WordPress site, where it is stored beside the original exactly like a server conversion.
+Turn on **Convert images in the browser** in Queue Settings. The image encoder that ships with the plugin then runs inside your own browser, so the image data never goes to another server and nothing has to be installed on your computer or your host. Your browser sends the finished WebP or AVIF file back to your WordPress site, where it is stored beside the original exactly like a server conversion.
 
 This mode is attended work: keep the plugin page open while it runs.
 
@@ -165,9 +170,17 @@ Each source file must be at most 20 MiB, at most 8,192 pixels along either edge,
 
 Source images and the conversion endpoints must be available on the same origin as your WordPress admin (the same protocol, host, and port). Offloaded images, CDN-only uploads, or a separate media domain are not supported by browser conversion. Your hosting must also accept the finished file upload; its upload-size limits still apply. Animated PNGs are not supported by the browser encoder.
 
+= Should I convert to AVIF or WebP? =
+
+It's your choice, and you can convert the same library again later if you change your mind.
+
+AVIF is the newer format and is usually smaller than WebP, depending on the image and quality settings for the same picture, so it is worth choosing when your visitors use current browsers. WebP is the safer default: every current browser reads it, it encodes much faster, and it is what the server background jobs produce when your hosting can create WebP.
+
+AVIF is produced by the browser converter in this version, so it is attended work: keep the plugin page open while it runs. Its files are served through a picture element with WebP or your original image as the fallback, so browsers without AVIF support use the fallback. Some very small or already-optimized images can come out larger as AVIF; those are skipped by default, just like oversized WebP files.
+
 = Does browser conversion put less load on my server? =
 
-It moves the image encoding to your computer. That can help when PHP cannot spare enough memory for an image, provided the file fits the browser's limits. Your server still serves the source file, receives and validates the WebP upload, saves it, and updates the conversion records. Browser conversion reduces the encoding work on your hosting; it doesn't remove all server work.
+It moves the image encoding to your computer. That can help when PHP cannot spare enough memory for an image, provided the file fits the browser's limits. Your server still serves the source file, receives and validates the generated upload, saves it, and updates the conversion records. Browser conversion reduces the encoding work on your hosting; it doesn't remove all server work.
 
 = Is browser conversion a replacement for the queue? =
 
@@ -195,7 +208,7 @@ The plugin records the original and WebP byte size of every file it generates, s
 
 = Can I use WP-CLI? =
 
-Yes. `wp ilswq status` reports server support, settings, queue state, and stored savings; `wp ilswq scan` lists images with their status; `wp ilswq convert` converts specific IDs, a dry run, or the whole library with `--all`; `wp ilswq totals` shows or rebuilds the savings; `wp ilswq queue` inspects or controls the queue; and `wp ilswq cleanup` removes generated WebP files.
+Yes. `wp ilswq status` reports server support, settings, queue state, and stored savings; `wp ilswq scan` lists images with their status; `wp ilswq convert` converts specific IDs, a dry run, or the whole library with `--all`; `wp ilswq totals` shows or rebuilds the savings; `wp ilswq queue` inspects or controls the queue; and `wp ilswq cleanup` removes generated WebP and AVIF files.
 
 = Can new uploads be converted automatically? =
 
@@ -215,14 +228,34 @@ The plugin detects source-file and quality-setting changes before regenerating i
 
 == Screenshots ==
 
-1. Check your hosting's WebP support and choose whether to convert on the server or in your browser.
+1. Check your hosting's WebP support, choose whether to convert on the server or in your browser, and pick WebP or AVIF as the browser output format.
 2. Scan your Media Library, select images, and see which files need conversion or have a conflict.
-3. Convert selected images and their generated sizes in the browser, with progress and a result for each file.
+3. Convert selected images and their generated sizes in the browser to WebP or AVIF, with progress and a result for each file.
 4. Review completed conversions, the method used, file sizes, and savings.
 5. Manage WebP status and exclusions from the Media Library list.
 6. See the completed browser run, including the files saved and any copies skipped because they were not smaller.
 
 == Changelog ==
+
+= 1.2.1 =
+
+* Preserve ownership when generated files are stale, missing, or damaged, so quality changes and repairs can regenerate them.
+* Allow WebP and AVIF conversions independently, including adding WebP through the server queue after AVIF conversion.
+* Preserve current AVIF copies during attachment metadata updates and clean obsolete sizes in both formats.
+* Match AVIF responsive candidates to exact source files, preserve crops, and retain the existing image fallback when AVIF coverage is incomplete.
+* Validate stored AVIF containers and compatible brands, including truncated files, animation brands, and malformed box boundaries.
+* Include both formats in report sizes, encoder labels, validation counts, and cleanup wording. Clarify that AVIF uses the browser and server jobs produce WebP.
+* Correct the browser encoder's AVIF lossless quality and chroma options.
+
+= 1.2.0 =
+
+* Added in-browser AVIF conversion. The bundled WebAssembly worker now encodes AVIF as well as WebP, and **Browser conversion format** in Queue Settings chooses which one a run produces. AVIF copies are typically 20-50% smaller than the equivalent WebP.
+* Added an **AVIF quality** setting (default 60, libavif's scale) beside the existing JPEG and PNG quality controls.
+* Stored AVIF files beside WebP files instead of on top of them, so a library can hold both and the served copy is chosen per browser. Report rows and totals cover either format.
+* Served AVIF through a `<picture>` element with WebP and the original image as fallbacks, so an AVIF copy never reaches a browser that cannot read it. URL swaps keep serving WebP.
+* Validated AVIF output on the server with a bounded ISO-BMFF box walk that refuses animated sequences, non-AVIF HEIF brands, and malformed boxes before anything is written.
+* Kept AVIF in the browser backend. GD and Imagick cannot be relied on to encode AVIF on shared hosting, so the server queue, automatic uploads and WP-CLI continue to produce WebP.
+* Added the browser AVIF encoder to the release package with its libavif and libaom licence notices.
 
 = 1.1.1 =
 

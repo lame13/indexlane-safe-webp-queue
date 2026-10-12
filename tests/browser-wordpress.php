@@ -235,6 +235,31 @@ function ilswq_browser_request( $action, $params = array(), $files = array() ) {
 }
 
 /**
+ * Write a minimal still AVIF file with the given canvas size.
+ *
+ * The real encoder runs in the browser, so the server-side test supplies the
+ * same delivery envelope the worker uploads: an `ftyp` box with an `avif`
+ * brand and a nested `meta/iprp/ipco/ispe` box carrying the dimensions.
+ *
+ * @param string $path Output path.
+ * @param int    $width Width.
+ * @param int    $height Height.
+ * @return bool
+ */
+function ilswq_browser_write_avif( $path, $width, $height ) {
+	$ftyp = pack( 'N', 20 ) . 'ftyp' . 'avif' . pack( 'N', 0 ) . 'mif1';
+	$ispe = pack( 'N', 20 ) . 'ispe' . pack( 'N', 0 ) . pack( 'N', $width ) . pack( 'N', $height );
+	$ipco = pack( 'N', 8 + strlen( $ispe ) ) . 'ipco' . $ispe;
+	$iprp = pack( 'N', 8 + strlen( $ipco ) ) . 'iprp' . $ipco;
+	$meta = pack( 'N', 12 + strlen( $iprp ) ) . 'meta' . pack( 'N', 0 ) . $iprp;
+
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+	file_put_contents( $path, $ftyp . $meta . pack( 'N', 9 ) . 'mdat' . "\x00" );
+
+	return file_exists( $path ) && filesize( $path ) > 0;
+}
+
+/**
  * Prepare one source file.
  *
  * @param int    $attachment_id Attachment ID.
@@ -747,6 +772,144 @@ if ( ILSWQ_PHP_Encoder::available() ) {
 	ILSWQ_Settings::save( $previous_settings );
 	fwrite( STDOUT, "Pure-PHP queue integration checks passed.\n" );
 }
+
+// 16. Browser AVIF output is stored beside WebP and served through <picture>.
+add_filter( 'ilswq_has_server_webp_writer', '__return_false' );
+$avif_settings                        = ILSWQ_Settings::get();
+$avif_settings['browser_conversion']  = 1;
+$avif_settings['browser_format']      = 'avif';
+$avif_settings['avif_quality']        = 55;
+$avif_settings['serve_webp']          = 1;
+ILSWQ_Settings::save( $avif_settings );
+
+$avif_fixture = $temp_dir . '/avif-source.jpg';
+ilswq_browser_create_jpeg( $avif_fixture, 320, 240 );
+$avif_id = ilswq_browser_insert_attachment( $avif_fixture, 'ilswq-browser-avif-source.jpg' );
+
+$avif_row = $scanner->scan_attachment( $avif_id, ILSWQ_Settings::get() );
+ilswq_browser_assert( 'eligible' === $avif_row['status_key'], 'An AVIF-only browser run was not eligible.' );
+
+$avif_prepared = ilswq_browser_success( ilswq_browser_prepare( $avif_id, 'full' ), 'AVIF prepare' );
+ilswq_browser_assert( 'avif' === $avif_prepared['format'], 'Prepare did not publish the AVIF output format.' );
+ilswq_browser_assert( 55 === (int) $avif_prepared['quality'], 'Prepare did not use the AVIF quality setting.' );
+
+$avif_upload = $temp_dir . '/converted.avif';
+ilswq_browser_write_avif( $avif_upload, (int) $avif_prepared['width'], (int) $avif_prepared['height'] );
+$avif_result = ilswq_browser_success( ilswq_browser_finish( $avif_prepared['token'], $avif_upload ), 'AVIF finish' );
+ilswq_browser_assert( 'ready' === $avif_result['status'] && 'avif' === $avif_result['format'], 'A valid still AVIF upload was not installed.' );
+
+$avif_map = ILSWQ_Scanner::get_webp_map( $avif_id );
+ilswq_browser_assert( isset( $avif_map['full__avif'] ), 'The AVIF sidecar was not recorded under its own map key.' );
+ilswq_browser_assert( 'avif' === ILSWQ_Scanner::entry_format( $avif_map['full__avif'] ), 'The stored AVIF entry lost its format.' );
+ilswq_browser_assert( 'WASM AVIF (browser)' === $avif_map['full__avif']['editor'], 'The stored AVIF editor label is wrong.' );
+ilswq_browser_assert( '.avif' === substr( strtolower( (string) $avif_map['full__avif']['webp'] ), -5 ), 'The AVIF sidecar does not use the avif extension.' );
+ilswq_browser_assert( ILSWQ_Scanner::is_valid_generated_file( (string) $avif_map['full__avif']['webp'], 'avif' ), 'The installed AVIF sidecar is not a valid AVIF file.' );
+
+$rescan = $scanner->scan_attachment( $avif_id, ILSWQ_Settings::get() );
+ilswq_browser_assert( 1 === $rescan['converted_source_count'] && 1 === $rescan['generated_source_count'], 'The report did not count the AVIF copy for validation.' );
+ilswq_browser_assert( 'WASM AVIF (browser)' === $rescan['editor'], 'The report did not retain the AVIF encoder label.' );
+ilswq_browser_assert( false !== strpos( (string) $rescan['format_label'], 'AVIF' ), 'The report did not name the AVIF format.' );
+
+// Re-preparing a finished AVIF copy reports the stored result instead of
+// starting a second encode.
+$avif_replay = ilswq_browser_success( ilswq_browser_prepare( $avif_id, 'full' ), 'AVIF replay' );
+ilswq_browser_assert( 'ready' === $avif_replay['status'], 'A completed AVIF copy was not reported as stored.' );
+ilswq_browser_assert( 'avif' === $avif_replay['format'], 'A stored AVIF copy lost its format.' );
+
+// A container that is not a still AVIF image is rejected, and nothing is stored.
+$rejected_prepared = ilswq_browser_success( ilswq_browser_prepare( $avif_id, 'thumbnail' ), 'AVIF rejection prepare' );
+if ( 'prepared' === $rejected_prepared['status'] ) {
+	$not_avif = $temp_dir . '/not-avif.avif';
+	file_put_contents( $not_avif, "RIFF\x00\x00\x00\x00WEBPVP8 " ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+	ilswq_browser_assert_error( ilswq_browser_finish( $rejected_prepared['token'], $not_avif ), 'ilswq_browser_container', 400, 'Non-AVIF upload' );
+}
+ilswq_browser_assert( ! isset( ILSWQ_Scanner::get_webp_map( $avif_id )['thumbnail__avif'] ), 'A rejected AVIF upload was still recorded.' );
+
+// Finish every responsive size, then test exact source matching and fallbacks.
+foreach ( $scanner->scan_attachment( $avif_id, ILSWQ_Settings::get() )['browser_sources'] as $variant ) {
+	$prepared_size = ilswq_browser_success( ilswq_browser_prepare( $avif_id, $variant['name'] ), 'AVIF size prepare' );
+	ilswq_browser_write_avif( $avif_upload, $prepared_size['width'], $prepared_size['height'] );
+	ilswq_browser_success( ilswq_browser_finish( $prepared_size['token'], $avif_upload ), 'AVIF size finish' );
+}
+$avif_map = ILSWQ_Scanner::get_webp_map( $avif_id );
+$cache = new ReflectionProperty( 'ILSWQ_Serving', 'entry_cache' );
+$cache->setAccessible( true );
+$cache->setValue( null, array() );
+$html = wp_get_attachment_image( $avif_id, 'full' );
+ilswq_browser_assert( false !== strpos( $html, '<picture>' ) && false !== strpos( $html, 'type="image/avif"' ) && false !== strpos( $html, '<img' ), 'Complete AVIF coverage did not preserve the image fallback.' );
+
+// Updating unchanged metadata must preserve every AVIF and its stored totals.
+$before_metadata = ILSWQ_Totals::get();
+wp_update_attachment_metadata( $avif_id, wp_get_attachment_metadata( $avif_id ) );
+ilswq_browser_assert( count( $avif_map ) === count( ILSWQ_Scanner::get_webp_map( $avif_id ) ), 'Metadata refresh removed current AVIF copies.' );
+ilswq_browser_assert( $before_metadata === ILSWQ_Totals::get(), 'Metadata refresh changed totals for current AVIF copies.' );
+
+// Changing format must expose the missing format in the report and server queue.
+$avif_settings['browser_format'] = 'webp';
+ILSWQ_Settings::save( $avif_settings );
+$webp_row = $scanner->scan_attachment( $avif_id, ILSWQ_Settings::get() );
+ilswq_browser_assert( $webp_row['eligible'] && count( $avif_map ) === $webp_row['browser_source_count'], 'AVIF copies blocked selecting WebP conversion.' );
+remove_filter( 'ilswq_has_server_webp_writer', '__return_false' );
+$server_result = $converter->convert_attachment( $avif_id, ILSWQ_Settings::get() );
+ilswq_browser_assert( 'converted' === $server_result['status_key'], 'Server conversion did not report completion.' );
+$mixed_map = ILSWQ_Scanner::get_webp_map( $avif_id );
+ilswq_browser_assert( isset( $mixed_map['full'], $mixed_map['full__avif'] ), 'Server conversion failed to add WebP beside AVIF.' );
+$mixed_row = $scanner->scan_attachment( $avif_id, ILSWQ_Settings::get() );
+ilswq_browser_assert( in_array( 'avif', $mixed_row['formats'], true ) && in_array( 'webp', $mixed_row['formats'], true ), 'The report omitted one generated format.' );
+$expected_bytes = array_sum( array_column( $mixed_map, 'webp_size' ) );
+ilswq_browser_assert( $expected_bytes === $mixed_row['webp_size'], 'The report omitted generated file bytes.' );
+$cache->setValue( null, array() );
+$webp_url = ILSWQ_Scanner::path_to_url( $mixed_map['full']['webp'] );
+$single = ILSWQ_Serving::filter_attachment_image_html( '<img src="' . $webp_url . '" width="320" height="240">', $avif_id, 'full', false, array() );
+ilswq_browser_assert( false !== strpos( $single, '<picture>' ), 'A single WebP fallback hid its matching AVIF.' );
+
+// Same-width crops are distinct sources. Partial coverage must not upscale AVIF.
+$medium_url = ILSWQ_Scanner::path_to_url( $mixed_map['medium']['source'] );
+$medium_avif = ILSWQ_Scanner::path_to_url( $mixed_map['medium__avif']['webp'] );
+$crop_map = get_post_meta( $avif_id, ILSWQ_META_WEBP_FILES, true );
+$crop_map['thumbnail__avif']['width'] = $mixed_map['medium__avif']['width'];
+update_post_meta( $avif_id, ILSWQ_META_WEBP_FILES, $crop_map );
+$cache->setValue( null, array() );
+$crop_html = '<img src="' . $medium_url . '" srcset="' . $medium_url . ' 300w" sizes="300px">';
+$crop_output = ILSWQ_Serving::filter_attachment_image_html( $crop_html, $avif_id, 'medium', false, array() );
+ilswq_browser_assert( false !== strpos( $crop_output, $medium_avif . ' 300w' ), 'AVIF serving selected a different crop with the same width.' );
+$partial_html = '<img src="' . $medium_url . '" srcset="' . $medium_url . ' 300w, https://example.test/missing.jpg 1200w">';
+ilswq_browser_assert( $partial_html === ILSWQ_Serving::filter_attachment_image_html( $partial_html, $avif_id, 'full', false, array() ), 'Partial AVIF coverage replaced the full responsive selection.' );
+
+// WebP must not hide stale AVIF, and replacing AVIF must preserve WebP.
+$avif_settings['browser_format'] = 'avif';
+$avif_settings['avif_quality'] = 45;
+ILSWQ_Settings::save( $avif_settings );
+$stale_row = $scanner->scan_attachment( $avif_id, ILSWQ_Settings::get() );
+ilswq_browser_assert( $stale_row['eligible'] && $stale_row['browser_source_count'] > 0, 'WebP copies hid stale AVIF conversion targets.' );
+$server_result = $converter->convert_attachment( $avif_id, ILSWQ_Settings::get() );
+ilswq_browser_assert( 'converted' === $server_result['status_key'], 'Pending AVIF made completed server work look skipped.' );
+$repair_avif = ilswq_browser_success( ilswq_browser_prepare( $avif_id, 'full' ), 'AVIF quality regeneration' );
+ilswq_browser_write_avif( $avif_upload, $repair_avif['width'], $repair_avif['height'] );
+$webp_hash = hash_file( 'sha256', $mixed_map['full']['webp'] );
+ilswq_browser_success( ilswq_browser_finish( $repair_avif['token'], $avif_upload ), 'AVIF regeneration finish' );
+ilswq_browser_assert( $webp_hash === hash_file( 'sha256', $mixed_map['full']['webp'] ), 'AVIF regeneration changed the WebP copy.' );
+file_put_contents( $mixed_map['full__avif']['webp'], substr( file_get_contents( $avif_upload ), 0, 32 ) );
+$invalid = ILSWQ_Scanner::validate_generated_files( $avif_id );
+ilswq_browser_assert( $invalid['invalid'] > 0, 'A truncated AVIF passed stored-file validation.' );
+$repair_avif = ilswq_browser_success( ilswq_browser_prepare( $avif_id, 'full' ), 'Damaged AVIF regeneration' );
+ilswq_browser_assert( 'prepared' === $repair_avif['status'], 'Damaged AVIF lost its ownership.' );
+ilswq_browser_success( ilswq_browser_finish( $repair_avif['token'], $avif_upload ), 'Repair damaged AVIF' );
+
+// A WebP-only attachment remains selectable after switching the browser to AVIF.
+$webp_only = $scanner->scan_attachment( $png_id, ILSWQ_Settings::get() );
+ilswq_browser_assert( $webp_only['eligible'] && $webp_only['browser_source_count'] > 0, 'Existing WebP copies blocked AVIF selection.' );
+
+// Removing a generated size cleans both formats while retaining current sizes.
+$metadata = wp_get_attachment_metadata( $avif_id );
+unset( $metadata['sizes']['medium'] );
+wp_update_attachment_metadata( $avif_id, $metadata );
+$remaining = ILSWQ_Scanner::get_webp_map( $avif_id );
+ilswq_browser_assert( ! isset( $remaining['medium'], $remaining['medium__avif'] ) && isset( $remaining['full'], $remaining['full__avif'] ), 'Metadata reconciliation did not handle both formats independently.' );
+
+wp_delete_attachment( $avif_id, true );
+wp_delete_file( $avif_fixture );
+remove_filter( 'ilswq_has_server_webp_writer', '__return_false' );
 
 foreach ( glob( $temp_dir . '/*' ) ?: array() as $file ) {
 	wp_delete_file( $file );

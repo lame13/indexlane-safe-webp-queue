@@ -16,6 +16,89 @@ class ILSWQ_Scanner {
 	const PER_PAGE = 50;
 
 	/**
+	 * Output formats this plugin can generate, in serving preference order.
+	 *
+	 * @var array<int, string>
+	 */
+	const OUTPUT_FORMATS = array( 'avif', 'webp' );
+
+	/**
+	 * ISO-BMFF brands accepted as a still AVIF image.
+	 *
+	 * @var array<int, string>
+	 */
+	const AVIF_BRANDS = array( 'avif', 'mif1', 'miaf', 'MA1B', 'MA1A' );
+
+	/**
+	 * Normalize an output format name.
+	 *
+	 * @param mixed $format Format value.
+	 * @return string webp or avif.
+	 */
+	public static function normalize_format( $format ) {
+		return 'avif' === strtolower( (string) $format ) ? 'avif' : 'webp';
+	}
+
+	/**
+	 * File extension for an output format.
+	 *
+	 * @param string $format Format.
+	 * @return string
+	 */
+	public static function format_extension( $format ) {
+		return 'avif' === self::normalize_format( $format ) ? '.avif' : '.webp';
+	}
+
+	/**
+	 * MIME type for an output format.
+	 *
+	 * @param string $format Format.
+	 * @return string
+	 */
+	public static function format_mime( $format ) {
+		return 'avif' === self::normalize_format( $format ) ? 'image/avif' : 'image/webp';
+	}
+
+	/**
+	 * Display label for an output format.
+	 *
+	 * @param string $format Format.
+	 * @return string
+	 */
+	public static function format_label( $format ) {
+		return 'avif' === self::normalize_format( $format ) ? 'AVIF' : 'WebP';
+	}
+
+	/**
+	 * Stored map key for one size and format.
+	 *
+	 * The WebP key keeps its historical bare size name so existing installs
+	 * keep working; AVIF entries use a suffixed key beside them.
+	 *
+	 * @param string $name Size name.
+	 * @param string $format Format.
+	 * @return string
+	 */
+	public static function map_entry_key( $name, $format ) {
+		$name = sanitize_key( (string) $name );
+		if ( '' === $name ) {
+			$name = 'full';
+		}
+
+		return 'avif' === self::normalize_format( $format ) ? $name . '__avif' : $name;
+	}
+
+	/**
+	 * Format recorded for a stored map entry.
+	 *
+	 * @param array<string, mixed> $entry Map entry.
+	 * @return string
+	 */
+	public static function entry_format( $entry ) {
+		return self::normalize_format( isset( $entry['format'] ) ? $entry['format'] : 'webp' );
+	}
+
+	/**
 	 * Return the source MIME types this plugin can convert.
 	 *
 	 * @return array<int, string>
@@ -139,7 +222,7 @@ class ILSWQ_Scanner {
 	}
 
 	/**
-	 * Return whether an attachment is excluded from WebP conversion.
+	 * Return whether an attachment is excluded from image conversion.
 	 *
 	 * @param int $attachment_id Attachment ID.
 	 * @return bool
@@ -213,7 +296,7 @@ class ILSWQ_Scanner {
 		$row = $this->base_row( $attachment_id );
 
 		if ( self::is_excluded( $attachment_id ) ) {
-			return $this->with_status( $row, 'excluded', __( 'Excluded from WebP conversion', 'indexlane-safe-webp-queue' ), false );
+			return $this->with_status( $row, 'excluded', __( 'Excluded from image conversion', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		$sources = $this->scan_sources( $attachment_id, $settings );
@@ -337,6 +420,7 @@ class ILSWQ_Scanner {
 				'webp_size'   => (int) get_post_meta( $attachment_id, ILSWQ_META_WEBP_SIZE, true ),
 				'source_size' => (int) get_post_meta( $attachment_id, ILSWQ_META_SOURCE_SIZE, true ),
 				'editor'      => (string) get_post_meta( $attachment_id, ILSWQ_META_EDITOR, true ),
+				'format'      => 'webp',
 			);
 		}
 
@@ -368,6 +452,7 @@ class ILSWQ_Scanner {
 
 			$entry['source'] = $source;
 			$entry['webp']   = $webp;
+			$entry['format'] = self::entry_format( $entry );
 			$map[ $name ]    = $entry;
 		}
 
@@ -445,10 +530,11 @@ class ILSWQ_Scanner {
 	 * Build the plugin output path for a source file.
 	 *
 	 * @param string $source_file Source file path.
+	 * @param string $format Output format.
 	 * @return string
 	 */
-	public static function output_path( $source_file ) {
-		return wp_normalize_path( $source_file ) . '.webp';
+	public static function output_path( $source_file, $format = 'webp' ) {
+		return wp_normalize_path( $source_file ) . self::format_extension( $format );
 	}
 
 	/**
@@ -498,6 +584,85 @@ class ILSWQ_Scanner {
 	}
 
 	/**
+	 * Return true when a file is a valid non-empty generated image.
+	 *
+	 * WebP uses the WordPress image-size check. AVIF deliberately uses a
+	 * bounded container check instead: `getimagesize()` only reports AVIF on hosts whose
+	 * PHP image support is new enough, and a file this plugin produced must not
+	 * be reported invalid just because the host cannot decode it.
+	 *
+	 * @param string $path File path.
+	 * @param string $format Output format.
+	 * @return bool
+	 */
+	public static function is_valid_generated_file( $path, $format = 'webp' ) {
+		if ( 'webp' === self::normalize_format( $format ) ) {
+			return self::is_valid_webp_file( $path );
+		}
+
+		if ( '' === $path || ! file_exists( $path ) ) {
+			return false;
+		}
+
+		$size = filesize( $path );
+		if ( false === $size || $size < 32 || $size > ILSWQ_Browser::MAX_OUTPUT ) {
+			return false;
+		}
+
+		$bytes = self::read_file_prefix( $path, (int) $size );
+
+		return strlen( $bytes ) === (int) $size && null !== ILSWQ_Browser::avif_dimensions( $bytes );
+	}
+
+	/**
+	 * Read a bounded prefix of a local file.
+	 *
+	 * WordPress's filesystem API cannot read a byte range, so this keeps a
+	 * documented, read-only exception for a size-limited image container.
+	 *
+	 * @param string $path File path.
+	 * @param int    $bytes Maximum bytes to read.
+	 * @return string Empty string when unreadable.
+	 */
+	public static function read_file_prefix( $path, $bytes ) {
+		$bytes = max( 1, (int) $bytes );
+
+		// WordPress's filesystem API cannot read a byte range, so this keeps a
+		// documented, bounded, read-only exception for a size-limited image container.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$data = file_get_contents( $path, false, null, 0, $bytes );
+
+		return is_string( $data ) ? $data : '';
+	}
+
+	/**
+	 * Return the ISO-BMFF major brand of a still AVIF file, or null.
+	 *
+	 * @param string $bytes File header bytes.
+	 * @return string|null
+	 */
+	public static function avif_brand( $bytes ) {
+		if ( strlen( $bytes ) < 16 || 'ftyp' !== substr( $bytes, 4, 4 ) ) {
+			return null;
+		}
+		$size  = unpack( 'N', substr( $bytes, 0, 4 ) )[1];
+		$brand = substr( $bytes, 8, 4 );
+		if ( $size < 16 || $size > strlen( $bytes ) || 0 !== ( $size - 16 ) % 4 || ! in_array( $brand, self::AVIF_BRANDS, true ) ) {
+			return null;
+		}
+		$has_avif = 'avif' === $brand;
+		for ( $at = 16; $at < $size; $at += 4 ) {
+			$compatible = substr( $bytes, $at, 4 );
+			if ( in_array( $compatible, array( 'avis', 'msf1', 'heic', 'heix', 'hevc', 'hevx' ), true ) ) {
+				return null;
+			}
+			$has_avif = $has_avif || 'avif' === $compatible;
+		}
+
+		return $has_avif ? $brand : null;
+	}
+
+	/**
 	 * Validate every generated WebP entry stored for an attachment.
 	 *
 	 * @param int $attachment_id Attachment ID.
@@ -523,12 +688,13 @@ class ILSWQ_Scanner {
 
 		$invalid = max( 0, $total - count( $map ) );
 		foreach ( $map as $entry ) {
-			$path = is_array( $entry ) && ! empty( $entry['webp'] ) ? wp_normalize_path( (string) $entry['webp'] ) : '';
+			$path   = is_array( $entry ) && ! empty( $entry['webp'] ) ? wp_normalize_path( (string) $entry['webp'] ) : '';
+			$format = is_array( $entry ) ? self::entry_format( $entry ) : 'webp';
 			if (
 				'' === $path ||
-				'.webp' !== substr( strtolower( $path ), -5 ) ||
+				self::format_extension( $format ) !== substr( strtolower( $path ), -strlen( self::format_extension( $format ) ) ) ||
 				! self::is_uploads_path( $path ) ||
-				! self::is_valid_webp_file( $path )
+				! self::is_valid_generated_file( $path, $format )
 			) {
 				++$invalid;
 			}
@@ -724,6 +890,11 @@ class ILSWQ_Scanner {
 		$source['webp_size']              = 0;
 		$source['webp_size_label']        = '';
 		$source['webp_url']               = '';
+		$source['formats']               = array();
+		$source['format_label']          = '';
+		$source['generated_entries']     = array();
+		$source['owned_entries']         = array();
+		$source['browser_eligible']      = false;
 		$source['browser_only']           = false;
 		$source['php_only']               = false;
 
@@ -766,38 +937,79 @@ class ILSWQ_Scanner {
 		$source['original_size']       = false === $original_size ? 0 : (int) $original_size;
 		$source['original_size_label'] = self::format_bytes( $source['original_size'] );
 
-		$estimated_memory                      = self::estimate_memory_bytes( $width, $height );
-		$source['estimated_memory']            = $estimated_memory;
-		$source['estimated_memory_label']      = self::format_bytes( $estimated_memory );
-		$source['output_path']                 = self::output_path( $file );
-		$source['existing_plugin_webp_entry']  = $this->webp_entry_from_map( $source, $webp_map );
-		$source['existing_plugin_webp_path']   = ! empty( $source['existing_plugin_webp_entry']['webp'] ) ? wp_normalize_path( (string) $source['existing_plugin_webp_entry']['webp'] ) : '';
+		$estimated_memory                 = self::estimate_memory_bytes( $width, $height );
+		$source['estimated_memory']       = $estimated_memory;
+		$source['estimated_memory_label'] = self::format_bytes( $estimated_memory );
+		$source['output_path']            = self::output_path( $file );
+		$issues                          = array();
+		$generated                       = array();
 
-		$entry_issue = '';
-		if ( '' !== $source['existing_plugin_webp_path'] && file_exists( $source['existing_plugin_webp_path'] ) ) {
-			if ( ! self::is_valid_webp_file( $source['existing_plugin_webp_path'] ) ) {
-				$entry_issue = __( 'Generated WebP file is invalid', 'indexlane-safe-webp-queue' );
-			} else {
-				$entry_issue = $this->generated_entry_issue( $source, $source['existing_plugin_webp_entry'], $settings );
+		foreach ( self::OUTPUT_FORMATS as $format ) {
+			$entry = $this->webp_entry_from_map( $source, $webp_map, $format );
+			if ( empty( $entry['webp'] ) ) {
+				continue;
 			}
 
-			if ( '' === $entry_issue ) {
-				return $this->source_with_existing_webp(
-					$source,
-					$source['existing_plugin_webp_path'],
-					'converted',
-					__( 'Generated by this plugin', 'indexlane-safe-webp-queue' )
-				);
+			// Ownership survives stale, missing, and damaged output.
+			$source['owned_entries'][ $format ] = $entry;
+			$entry_path = wp_normalize_path( (string) $entry['webp'] );
+			if ( ! file_exists( $entry_path ) ) {
+				continue;
+			}
+
+			if ( ! self::is_valid_generated_file( $entry_path, $format ) ) {
+				/* translators: %s: output format label, such as "AVIF". */
+				$issues[ $format ] = sprintf( __( 'Generated %s file is invalid', 'indexlane-safe-webp-queue' ), self::format_label( $format ) );
+				continue;
+			}
+
+			$entry_issue = $this->generated_entry_issue( $source, $entry, $settings );
+			if ( '' !== $entry_issue ) {
+				$issues[ $format ] = $entry_issue;
+				continue;
+			}
+
+			$generated[ $format ] = $entry;
+		}
+
+		$source['generated_entries']          = $generated;
+		$source['formats']                   = array_keys( $generated );
+		$source['format_label']               = implode( ', ', array_map( array( __CLASS__, 'format_label' ), $source['formats'] ) );
+		$source['existing_plugin_webp_entry'] = isset( $source['owned_entries']['webp'] ) ? $source['owned_entries']['webp'] : array();
+		$source['existing_plugin_webp_path']  = ! empty( $source['existing_plugin_webp_entry']['webp'] ) ? wp_normalize_path( (string) $source['existing_plugin_webp_entry']['webp'] ) : '';
+
+		// Offer the configured browser format independently of server WebP work.
+		$browser_format = ILSWQ_Settings::normalize_format( isset( $settings['browser_format'] ) ? $settings['browser_format'] : 'webp' );
+		$browser_path = self::output_path( $file, $browser_format );
+		$source['browser_eligible'] = self::source_is_browser_convertible( $source )
+			&& empty( $generated[ $browser_format ] )
+			&& ( ! file_exists( $browser_path ) || isset( $source['owned_entries'][ $browser_format ] ) )
+			&& ILSWQ_Capabilities::is_writable_path( dirname( $file ) )
+			&& ( empty( $settings['max_pixels'] ) || $source['pixel_count'] <= (int) $settings['max_pixels'] );
+
+		if ( ! empty( $generated ) ) {
+			$primary = isset( $generated['webp'] ) ? $generated['webp'] : reset( $generated );
+			$source = $this->source_with_existing_webp(
+				$source,
+				wp_normalize_path( (string) $primary['webp'] ),
+				self::entry_format( $primary ),
+				'converted',
+				__( 'Generated by this plugin', 'indexlane-safe-webp-queue' )
+			);
+			// The server still needs WebP even when an AVIF copy exists.
+			if ( isset( $generated['webp'] ) || ( ! ILSWQ_Capabilities::has_unattended_backend() && ! $source['browser_eligible'] ) ) {
+				return $source;
 			}
 		}
 
-		if ( '' === $entry_issue && file_exists( $source['output_path'] ) ) {
-			return $this->source_with_existing_webp(
-				$source,
-				$source['output_path'],
-				'conflict',
-				__( 'A sibling WebP file exists but is not owned by this plugin. Move or rename it before converting.', 'indexlane-safe-webp-queue' )
-			);
+		$entry_issue = isset( $issues['webp'] ) ? $issues['webp'] : '';
+		if ( $source['browser_eligible'] && isset( $issues[ $browser_format ] ) ) {
+			$entry_issue = $issues[ $browser_format ];
+		}
+
+		// A foreign AVIF must not block the WebP server queue (or vice versa).
+		if ( file_exists( $source['output_path'] ) && empty( $source['owned_entries']['webp'] ) ) {
+			return $this->source_with_status( $source, 'conflict', __( 'A sibling WebP file exists but is not owned by this plugin. Move or rename it before converting.', 'indexlane-safe-webp-queue' ), false );
 		}
 
 		if ( 'image/webp' === $mime_type ) {
@@ -957,7 +1169,9 @@ class ILSWQ_Scanner {
 		$browser_sources       = array();
 		$browser_only_count    = 0;
 		$editors               = array();
+		$formats               = array();
 		$covered_source_bytes  = 0;
+		$webp_source_count     = 0;
 		$counts                = array(
 			'eligible'       => 0,
 			'needs_review'   => 0,
@@ -974,19 +1188,23 @@ class ILSWQ_Scanner {
 		foreach ( $sources as $source ) {
 			$status_key = isset( $source['status_key'] ) ? (string) $source['status_key'] : 'skipped';
 			$reason     = isset( $source['reason'] ) ? (string) $source['reason'] : '';
-			if ( ! empty( $source['existing_plugin_webp_path'] ) ) {
+			if ( ! empty( $source['owned_entries'] ) ) {
 				++$row['generated_source_count'];
-				if ( ! empty( $source['existing_plugin_webp_entry']['editor'] ) ) {
-					$editors[] = (string) $source['existing_plugin_webp_entry']['editor'];
-				}
 			}
-			if ( ! empty( $source['webp_size'] ) ) {
+			if ( isset( $source['generated_entries']['webp'] ) ) {
+				++$webp_source_count;
+			}
+			foreach ( $source['generated_entries'] as $format => $entry ) {
+				$formats[] = $format;
+				if ( ! empty( $entry['editor'] ) ) {
+					$editors[] = (string) $entry['editor'];
+				}
 				$covered_source_bytes += (int) $source['original_size'];
+				$row['webp_size'] += (int) filesize( $entry['webp'] );
 			}
 
 			$row['original_size']    += isset( $source['original_size'] ) ? (int) $source['original_size'] : 0;
 			$row['estimated_memory']  = max( (int) $row['estimated_memory'], isset( $source['estimated_memory'] ) ? (int) $source['estimated_memory'] : 0 );
-			$row['webp_size']        += isset( $source['webp_size'] ) ? (int) $source['webp_size'] : 0;
 			$row['pixel_count']       = max( (int) $row['pixel_count'], isset( $source['pixel_count'] ) ? (int) $source['pixel_count'] : 0 );
 
 			if ( '' === $first_reason && '' !== $reason ) {
@@ -1017,7 +1235,7 @@ class ILSWQ_Scanner {
 				++$counts['skipped'];
 			}
 
-			if ( in_array( $status_key, array( 'eligible', 'needs-review' ), true ) && self::source_is_browser_convertible( $source ) ) {
+			if ( ! empty( $source['browser_eligible'] ) ) {
 				if ( ! empty( $source['browser_only'] ) ) {
 					++$browser_only_count;
 				}
@@ -1034,6 +1252,7 @@ class ILSWQ_Scanner {
 		}
 
 		$row['source_count']           = $source_count;
+		$row['server_complete']        = $source_count > 0 && $webp_source_count === $source_count;
 		$row['source_count_label']     = sprintf(
 			/* translators: %d: source file count. */
 			_n( '%d source file', '%d source files', $source_count, 'indexlane-safe-webp-queue' ),
@@ -1050,10 +1269,16 @@ class ILSWQ_Scanner {
 		$row['estimated_memory_label'] = self::format_bytes( (int) $row['estimated_memory'] );
 		$row['webp_size_label']        = (int) $row['webp_size'] > 0 ? self::format_bytes( (int) $row['webp_size'] ) : '';
 		$row['savings']                = $this->savings_label( $covered_source_bytes, (int) $row['webp_size'] );
+		$row['formats']                = array_values( array_unique( $formats ) );
+		$row['format_label']           = implode( ', ', array_map( array( __CLASS__, 'format_label' ), $row['formats'] ) );
 		if ( ! empty( $editors ) ) {
 			$row['editor'] = implode( ', ', array_unique( $editors ) );
 		} elseif ( $browser_only_count > 0 && $browser_only_count >= $row['eligible_source_count'] ) {
 			$row['editor'] = __( 'WASM (browser)', 'indexlane-safe-webp-queue' );
+		}
+
+		if ( ! empty( $browser_sources ) && 0 === $row['eligible_source_count'] ) {
+			return $this->with_status( $row, 'eligible', __( 'Ready for conversion in your browser', 'indexlane-safe-webp-queue' ), true );
 		}
 
 		if ( $counts['conflict'] > 0 ) {
@@ -1121,7 +1346,7 @@ class ILSWQ_Scanner {
 				'converted',
 				sprintf(
 					/* translators: %d: converted source count. */
-					__( '%d WebP files generated', 'indexlane-safe-webp-queue' ),
+					__( '%d source files converted', 'indexlane-safe-webp-queue' ),
 					$counts['converted']
 				),
 				false
@@ -1134,7 +1359,7 @@ class ILSWQ_Scanner {
 				'needs-review',
 				sprintf(
 					/* translators: 1: ready WebP count, 2: total source count. */
-					__( '%1$d of %2$d source files have WebP copies', 'indexlane-safe-webp-queue' ),
+					__( '%1$d of %2$d source files have generated copies', 'indexlane-safe-webp-queue' ),
 					$counts['converted'] + $counts['already_exists'],
 					$source_count
 				),
@@ -1185,16 +1410,18 @@ class ILSWQ_Scanner {
 	 *
 	 * @param array<string, mixed> $source Source.
 	 * @param string               $webp_path WebP path.
+	 * @param string               $format Generated format.
 	 * @param string               $status_key Status key.
 	 * @param string               $reason Reason.
 	 * @return array<string, mixed>
 	 */
-	private function source_with_existing_webp( $source, $webp_path, $status_key, $reason ) {
+	private function source_with_existing_webp( $source, $webp_path, $format, $status_key, $reason ) {
 		$webp_size = filesize( $webp_path );
 
 		$source['webp_size']       = false === $webp_size ? 0 : (int) $webp_size;
 		$source['webp_size_label'] = self::format_bytes( $source['webp_size'] );
 		$source['webp_url']        = self::path_to_url( $webp_path );
+		$source['webp_format']     = self::normalize_format( $format );
 
 		return $this->source_with_status( $source, $status_key, $reason, false );
 	}
@@ -1207,7 +1434,7 @@ class ILSWQ_Scanner {
 	 *
 	 * @param array<string, mixed> $source Source data.
 	 * @param array<string, mixed> $entry Stored map entry.
-	 * @param array<string, int>   $settings Current settings.
+	 * @param array<string, mixed> $settings Current settings.
 	 * @return string
 	 */
 	private function generated_entry_issue( $source, $entry, $settings ) {
@@ -1216,11 +1443,14 @@ class ILSWQ_Scanner {
 		}
 
 		$mime_type       = isset( $source['mime_type'] ) ? (string) $source['mime_type'] : '';
-		$current_quality = ILSWQ_Settings::quality_for_mime( $mime_type, $settings );
+		$format          = self::entry_format( $entry );
+		$current_quality = ILSWQ_Settings::quality_for_format( $mime_type, $format, $settings );
 		$stored_quality  = isset( $entry['quality'] ) ? absint( $entry['quality'] ) : 0;
 
 		if ( $stored_quality > 0 && $stored_quality !== $current_quality ) {
-			return __( 'WebP was generated with different quality settings', 'indexlane-safe-webp-queue' );
+			return 'avif' === $format
+				? __( 'AVIF was generated with different quality settings', 'indexlane-safe-webp-queue' )
+				: __( 'WebP was generated with different quality settings', 'indexlane-safe-webp-queue' );
 		}
 
 		if ( ! empty( $entry['fingerprint'] ) && $stored_quality > 0 ) {
@@ -1264,27 +1494,42 @@ class ILSWQ_Scanner {
 	}
 
 	/**
-	 * Get a plugin-generated WebP entry from the stored map.
+	 * Get a plugin-generated entry for one source and output format.
 	 *
 	 * @param array<string, mixed>               $source Source.
 	 * @param array<string, array<string,mixed>> $webp_map WebP map.
+	 * @param string                             $format Output format.
 	 * @return array<string, mixed>
 	 */
-	private function webp_entry_from_map( $source, $webp_map ) {
-		$name        = isset( $source['name'] ) ? (string) $source['name'] : '';
+	private function webp_entry_from_map( $source, $webp_map, $format = 'webp' ) {
+		$format      = self::normalize_format( $format );
+		$name        = isset( $source['name'] ) ? sanitize_key( (string) $source['name'] ) : '';
 		$path        = isset( $source['path'] ) ? wp_normalize_path( (string) $source['path'] ) : '';
-		$output_path = self::output_path( $path );
+		$output_path = self::output_path( $path, $format );
 
-		if ( '' !== $name && isset( $webp_map[ $name ]['webp'] ) ) {
-			$entry_source = isset( $webp_map[ $name ]['source'] ) ? wp_normalize_path( (string) $webp_map[ $name ]['source'] ) : '';
-			$entry_webp   = wp_normalize_path( (string) $webp_map[ $name ]['webp'] );
+		$candidate_keys = array();
+		if ( '' !== $name ) {
+			$candidate_keys[] = self::map_entry_key( $name, $format );
+			$candidate_keys[] = $name;
+		}
+
+		foreach ( $candidate_keys as $key ) {
+			if ( ! isset( $webp_map[ $key ]['webp'] ) || self::entry_format( $webp_map[ $key ] ) !== $format ) {
+				continue;
+			}
+
+			$entry_source = isset( $webp_map[ $key ]['source'] ) ? wp_normalize_path( (string) $webp_map[ $key ]['source'] ) : '';
+			$entry_webp   = wp_normalize_path( (string) $webp_map[ $key ]['webp'] );
 			if ( $path === $entry_source && $output_path === $entry_webp ) {
-				return $webp_map[ $name ];
+				return $webp_map[ $key ];
 			}
 		}
 
 		foreach ( $webp_map as $entry ) {
 			if ( ! is_array( $entry ) || empty( $entry['source'] ) || empty( $entry['webp'] ) ) {
+				continue;
+			}
+			if ( self::entry_format( $entry ) !== $format ) {
 				continue;
 			}
 

@@ -74,12 +74,12 @@ class ILSWQ_Media {
 		foreach ( $columns as $key => $label ) {
 			$updated[ $key ] = $label;
 			if ( 'title' === $key ) {
-				$updated[ self::COLUMN ] = __( 'WebP', 'indexlane-safe-webp-queue' );
+				$updated[ self::COLUMN ] = __( 'WebP / AVIF', 'indexlane-safe-webp-queue' );
 			}
 		}
 
 		if ( ! isset( $updated[ self::COLUMN ] ) ) {
-			$updated[ self::COLUMN ] = __( 'WebP', 'indexlane-safe-webp-queue' );
+			$updated[ self::COLUMN ] = __( 'WebP / AVIF', 'indexlane-safe-webp-queue' );
 		}
 
 		return $updated;
@@ -138,13 +138,13 @@ class ILSWQ_Media {
 			$actions['ilswq_include'] = sprintf(
 				'<a href="%s">%s</a>',
 				esc_url( self::action_url( 'include', array( $attachment_id ) ) ),
-				esc_html__( 'Include in WebP', 'indexlane-safe-webp-queue' )
+				esc_html__( 'Include in image conversion', 'indexlane-safe-webp-queue' )
 			);
 		} else {
 			$actions['ilswq_exclude'] = sprintf(
 				'<a href="%s">%s</a>',
 				esc_url( self::action_url( 'exclude', array( $attachment_id ) ) ),
-				esc_html__( 'Exclude from WebP', 'indexlane-safe-webp-queue' )
+				esc_html__( 'Exclude from image conversion', 'indexlane-safe-webp-queue' )
 			);
 		}
 
@@ -163,8 +163,8 @@ class ILSWQ_Media {
 		}
 
 		$actions[ self::BULK_CONVERT ] = __( 'Convert to WebP', 'indexlane-safe-webp-queue' );
-		$actions[ self::BULK_EXCLUDE ] = __( 'Exclude from WebP conversion', 'indexlane-safe-webp-queue' );
-		$actions[ self::BULK_INCLUDE ] = __( 'Include in WebP conversion', 'indexlane-safe-webp-queue' );
+		$actions[ self::BULK_EXCLUDE ] = __( 'Exclude from image conversion', 'indexlane-safe-webp-queue' );
+		$actions[ self::BULK_INCLUDE ] = __( 'Include in image conversion', 'indexlane-safe-webp-queue' );
 
 		return $actions;
 	}
@@ -211,7 +211,7 @@ class ILSWQ_Media {
 	 */
 	public function handle_media_action() {
 		if ( ! self::can_manage() ) {
-			wp_die( esc_html__( 'You do not have permission to change WebP conversion for this image.', 'indexlane-safe-webp-queue' ) );
+			wp_die( esc_html__( 'You do not have permission to change image conversion for this image.', 'indexlane-safe-webp-queue' ) );
 		}
 
 		$task = isset( $_GET['ilswq_task'] ) && is_scalar( $_GET['ilswq_task'] ) ? sanitize_key( wp_unslash( $_GET['ilswq_task'] ) ) : '';
@@ -382,8 +382,8 @@ class ILSWQ_Media {
 				return sprintf(
 					/* translators: %d: attachment count. */
 					_n(
-						'%d image was queued for WebP conversion. Track it under Tools -> IndexLane Safe WebP Queue.',
-						'%d images were queued for WebP conversion. Track them under Tools -> IndexLane Safe WebP Queue.',
+						'%d image was queued for WebP conversion. Track it under Tools -> IndexLane Safe WebP & AVIF Queue.',
+						'%d images were queued for WebP conversion. Track them under Tools -> IndexLane Safe WebP & AVIF Queue.',
 						$count,
 						'indexlane-safe-webp-queue'
 					),
@@ -393,8 +393,8 @@ class ILSWQ_Media {
 				return sprintf(
 					/* translators: %d: attachment count. */
 					_n(
-						'%d image was excluded from WebP conversion.',
-						'%d images were excluded from WebP conversion.',
+						'%d image was excluded from image conversion.',
+						'%d images were excluded from image conversion.',
 						$count,
 						'indexlane-safe-webp-queue'
 					),
@@ -404,8 +404,8 @@ class ILSWQ_Media {
 				return sprintf(
 					/* translators: %d: attachment count. */
 					_n(
-						'%d image can be converted to WebP again.',
-						'%d images can be converted to WebP again.',
+						'%d image can be converted again.',
+						'%d images can be converted again.',
 						$count,
 						'indexlane-safe-webp-queue'
 					),
@@ -418,7 +418,7 @@ class ILSWQ_Media {
 			case 'empty':
 				return __( 'No images were queued. The selected images may already be converted, excluded, or unsupported.', 'indexlane-safe-webp-queue' );
 			case 'no-writer':
-				return __( 'This server cannot write WebP with a local image editor. Open Tools -> IndexLane Safe WebP Queue and convert the image in your browser instead.', 'indexlane-safe-webp-queue' );
+				return __( 'This server cannot write WebP with a local image editor. Open Tools -> IndexLane Safe WebP & AVIF Queue and convert the image in your browser instead.', 'indexlane-safe-webp-queue' );
 		}
 
 		return '';
@@ -498,6 +498,7 @@ class ILSWQ_Media {
 	private static function converted_detail( $row ) {
 		$webp_label = isset( $row['webp_size_label'] ) ? (string) $row['webp_size_label'] : '';
 		$savings    = isset( $row['savings'] ) ? (string) $row['savings'] : '';
+		$formats    = ! empty( $row['format_label'] ) ? (string) $row['format_label'] : 'WebP';
 
 		if ( '' === $webp_label ) {
 			return '';
@@ -505,15 +506,17 @@ class ILSWQ_Media {
 
 		if ( '' === $savings ) {
 			return sprintf(
-				/* translators: %s: total size of generated WebP files. */
-				__( 'WebP copies: %s', 'indexlane-safe-webp-queue' ),
+				/* translators: 1: generated format labels, such as "WebP" or "AVIF, WebP", 2: total size of the generated files. */
+				__( '%1$s copies: %2$s', 'indexlane-safe-webp-queue' ),
+				$formats,
 				$webp_label
 			);
 		}
 
 		return sprintf(
-			/* translators: 1: total size of generated WebP files, 2: saved percentage. */
-			__( 'WebP copies: %1$s. Saved: %2$s.', 'indexlane-safe-webp-queue' ),
+			/* translators: 1: generated format labels, such as "WebP" or "AVIF, WebP", 2: total size of the generated files, 3: saved percentage. */
+			__( '%1$s copies: %2$s. Saved: %3$s.', 'indexlane-safe-webp-queue' ),
+			$formats,
 			$webp_label,
 			$savings
 		);

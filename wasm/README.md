@@ -1,8 +1,8 @@
-# Browser WebP module
+# Browser WebP and AVIF module
 
-This is the browser conversion module shipped with IndexLane Safe WebP Queue. It runs from the authenticated plugin admin page and stops when the tab closes. The batch handles existing JPEG/PNG attachment variants, including existing thumbnail files. Generating missing thumbnails and processing an upload before WordPress creates its attachment metadata are outside this version.
+This is the browser conversion module shipped with IndexLane Safe WebP & AVIF Queue. It runs from the authenticated plugin admin page and stops when the tab closes. The batch handles existing JPEG/PNG attachment variants, including existing thumbnail files. Generating missing thumbnails and processing an upload before WordPress creates its attachment metadata are outside this version.
 
-The batch uses **lossy WebP** with the saved JPEG or PNG quality and libwebp method **4**. The standalone encoder defaults to quality **80/100**. The standalone encoder also accepts an explicit lossless option; `runBatch` always requests lossy WebP.
+The batch encodes either **WebP** or **AVIF**, chosen per run by the server's `format` field. WebP uses the saved JPEG or PNG quality and libwebp method **4**. AVIF uses the separate AVIF quality on libavif's scale. Both are lossy and `runBatch` never requests lossless. Each `encodeImage()` call carries the target format, and the worker loads only that format's codec.
 
 ## Build and copy
 
@@ -13,9 +13,9 @@ npm ci
 npm run build
 ```
 
-The supplied lockfile pins the installed dependency graph. Direct dependencies are `@jsquash/webp` 1.5.0, TypeScript 7.0.2, and Vite 8.3.0. Copy `dist/safewebp-browser.js` and the complete `dist/assets/` directory to `assets/wasm/` in the plugin, replacing the previous generated files. Do not ship the hidden `dist/.vite/` build metadata. Also copy `THIRD-PARTY-NOTICES/`: Vite's generated licence listing does not capture these worker dependencies. No runtime CDN is used. Do not deploy `node_modules/`.
+The supplied lockfile pins the installed dependency graph. Direct dependencies are `@jsquash/webp` 1.5.0, `@jsquash/avif` 2.1.1, TypeScript 7.0.2, and Vite 8.3.0. Copy `dist/safewebp-browser.js` and the complete `dist/assets/` directory to `assets/wasm/` in the plugin, replacing the previous generated files. Do not ship the hidden `dist/.vite/` build metadata. Keep `THIRD-PARTY-NOTICES/`: Vite's generated licence listing does not capture these worker dependencies, and the AVIF codec needs its libavif and libaom notices. No runtime CDN is used. Do not deploy `node_modules/`.
 
-Serve JavaScript with a JavaScript MIME type and `.wasm` as `application/wasm`. Use a secure context (HTTPS, or localhost during development). A site's CSP must allow its own module scripts, workers, and WASM compilation; test against that site's actual policy. This single-worker codec does not require a SharedArrayBuffer/COOP/COEP deployment.
+Serve JavaScript with a JavaScript MIME type and `.wasm` as `application/wasm`. Use a secure context (HTTPS, or localhost during development). A site's CSP must allow its own module scripts, workers, and WASM compilation; test against that site's actual policy. Neither codec needs a SharedArrayBuffer/COOP/COEP deployment: the AVIF path deliberately imports the single-threaded libavif build rather than the `avif_enc_mt` variant, and that build is only fetched when AVIF is configured.
 
 `dist/safewebp-browser.js` is an ES module with named exports, not a classic script that adds globals. Keep its neighboring `assets/` directory intact; `base: './'` allows placing this build beneath a plugin directory. Vite's manifest alone does not enumerate every dynamically imported worker asset, so copying only manifest-listed files is insufficient.
 
@@ -61,13 +61,14 @@ An upload that times out or is cancelled may already have committed on the serve
 The standalone entry transfers and detaches its input buffer:
 
 ```ts
-import { encodeWebP } from './src/index';
+import { encodeImage } from './src/index';
 
-const result = await encodeWebP(sourceArrayBuffer, {
+const result = await encodeImage(sourceArrayBuffer, {
+  format: 'webp', // or 'avif'
   quality: 80, // libwebp's 0..100 scale, not canvas's 0..1 scale
   lossless: false,
 }, { signal: controller.signal });
-const webp = new Blob([result.bytes], { type: 'image/webp' });
+const output = new Blob([result.bytes], { type: result.mimeType });
 ```
 
 ## What the code actually does
@@ -75,8 +76,8 @@ const webp = new Blob([result.bytes], { type: 'image/webp' });
 1. `batch.ts` prepares one variant using the REST nonce. All endpoints and source URLs must be same-origin, and fetch redirects are rejected. The response body is streamed with a byte cap, including when Content-Length is missing or incorrect.
 2. It checks downloaded length and SHA-256 against the server's prepared snapshot, catching changed or stale source bytes before encoding.
 3. `encoder.ts` transfers the compressed source bytes into a fresh dedicated worker. Its main-thread timer terminates the worker on timeout or cancellation; a cancel message cannot interrupt synchronous WASM encoding.
-4. `worker.ts` preflights JPEG/PNG headers and dimensions before decoding. It rejects APNG rather than discarding animation. `createImageBitmap` and `OffscreenCanvas` produce RGBA inside the worker, and jSquash/libwebp performs the actual encode there.
-5. The worker checks the RIFF/WebP envelope, decodes the encoded output with `createImageBitmap`, and checks its dimensions. It transfers the resulting bytes back. The controller terminates the worker after every result, releasing that instance's heap.
+4. `worker.ts` preflights JPEG/PNG headers and dimensions before decoding. It rejects APNG rather than discarding animation. `createImageBitmap` and `OffscreenCanvas` produce RGBA inside the worker, then jSquash/libwebp or the single-threaded libavif build performs the actual encode there.
+5. The worker checks the output envelope for the requested format (RIFF/WebP or an ISO-BMFF `ftyp` with a still AVIF brand), decodes the encoded output with `createImageBitmap`, and checks its dimensions. It transfers the resulting bytes back. The controller terminates the worker after every result, releasing that instance's heap.
 6. The main thread checks returned dimensions against the prepared server dimensions, then posts multipart `{token,file}`. The server independently validates, locks, saves a sidecar, and records its mapping. Browser checks are not an authorization or file-validation boundary.
 
 The source and output message protocols use discriminated unions and runtime checks of `unknown` values. DOM and Worker TypeScript libraries are checked separately. Workers are fresh per file for predictable cleanup; repeated codec initialization costs some CPU, although browsers can cache the local WASM downloads.
@@ -98,7 +99,7 @@ These are rejection limits, not a guaranteed browser memory budget. One 16-megap
 
 This module does not resize, copy EXIF/XMP/ICC metadata, preserve embedded color profiles, or promise archival pixel identity. The browser may perform color management, and canvas has alpha representation limitations. JPEG APP1 and PNG eXIf orientation tags are inspected before decoding; rotation or mirror tags are rejected even when they leave the dimensions unchanged. Decoded dimension mismatches are also rejected. Normalize orientation before this stage.
 
-Supported browsers must provide module Workers, WebAssembly, `createImageBitmap` and `OffscreenCanvas` inside the worker, fetch streams, Web Crypto (including `randomUUID`), and AbortController with `AbortSignal.throwIfAborted`. The admin page calls `probeBrowserEncoder()` to load a real module worker, check its 2D canvas, and initialize the bundled codec before enabling conversion. There is no silently blocking main-thread fallback. A compatibility extension could decode with an HTML image and document canvas, then transfer RGBA to the same worker; that adds main-thread work and needs its own orientation, allocation, and cancellation tests.
+Supported browsers must provide module Workers, WebAssembly, `createImageBitmap` and `OffscreenCanvas` inside the worker, fetch streams, Web Crypto (including `randomUUID`), and AbortController with `AbortSignal.throwIfAborted`. The admin page calls `probeBrowserEncoder(format)` to load a real module worker, check its 2D canvas, and initialize the codec for the configured format before enabling conversion. There is no silently blocking main-thread fallback. A compatibility extension could decode with an HTML image and document canvas, then transfer RGBA to the same worker; that adds main-thread work and needs its own orientation, allocation, and cancellation tests.
 
 ## jSquash/Vite details that matter
 
@@ -106,16 +107,20 @@ The installed 1.5.0 source and declarations were inspected directly. `encode` ac
 
 The package's initializer detects SIMD and dynamically selects `webp_enc_simd.js` or `webp_enc.js`. Therefore the build imports **both corresponding `.wasm?url` assets** and maps their filenames in `locateFile`. Supplying a scalar module blindly can mismatch the selected SIMD glue. Do not use `new URL('a-package-name/...', import.meta.url)` as if a package name were a browser URL, and do not assume an Emscripten-relative filename survives bundling.
 
+For AVIF the package's own `init()` is not used, because it upgrades to the multithreaded `avif_enc_mt` build whenever `wasm-feature-detect` reports threads. The worker imports the single-threaded factory from `@jsquash/avif/codec/enc/avif_enc.js` and the shared `initEmscriptenModule` helper's behaviour through the factory's own `locateFile`, mapping `avif_enc.wasm` to the emitted asset. `@jsquash/avif`'s TypeScript declarations reuse the same global `EmscriptenWasm` namespace as `@jsquash/webp`, so referencing both sets of declarations collides; `src/wasm.d.ts` declares the two AVIF deep imports locally instead.
+
 Vite recognizes the literal `new Worker(new URL('./worker.ts', import.meta.url), {type:'module'})` construction and builds a separate module worker. WASM is imported as a URL for Emscripten to instantiate; it is not treated as a self-contained `?init` module without its glue imports. Explicit URL mapping and the copied asset directory are essential.
 
 References: [jSquash repository](https://github.com/jamsinclair/jSquash), [Vite worker and asset handling](https://vite.dev/guide/features.html#web-workers), [Emscripten locateFile](https://emscripten.org/docs/api_reference/module.html#Module.locateFile). Dependency inspection, rather than fetched GitHub pages, verified the exact jSquash API in this environment.
 
-## AVIF boundary
+## AVIF
 
-AVIF would be a separate, lazily loaded worker codec branch and requires its own effort/quality settings, output decoder check, and memory/time limits. It is not a filename or MIME switch: the PHP WebP validator, output extension, mapping, and serving behavior would also need AVIF support. Version 1.0.0 uploads WebP only. An AVIF experiment should be measured against the same representative image set before choosing batch defaults.
+AVIF is a lazily loaded worker codec branch with its own quality setting, output decoder check, and memory/time limits, exactly as the 1.0.0 boundary described. The server side is format-aware rather than a filename switch: it has a separate AVIF validator and extension, per-format map keys, and `<picture>`-based serving with a fallback. Only the single-threaded libavif/libaom build is imported, so the bundle keeps working without cross-origin isolation.
+
+AVIF encoding is slower than WebP, especially with the default `speed: 6`, so remain within the same 16-megapixel and 60-second per-image bounds. The measurement harness should still be run against the representative image set before changing batch or quality defaults; AVIF can also come out larger than WebP for tiny, already-optimized images, which is why the server keeps applying the skip-larger rule per format.
 
 ## Verification status
 
-For 1.0.0, `npm run build` passed, including strict TypeScript checks for both the DOM entry and the worker and the module regression tests. The shipped output matches the build and includes both scalar and SIMD WASM assets with their local worker/glue chunks and licence notices.
+For 1.2.0, `npm run build` passed, including strict TypeScript checks for both the DOM entry and the worker and the module regression tests. The shipped output matches the build and includes the scalar and SIMD WebP WASM assets, the AVIF WASM asset, their local worker/glue chunks, and the libwebp, libavif, libaom, jSquash and wasm-feature-detect licence notices.
 
-Actual conversions through the WordPress admin passed in Chrome 153.0.8010.52 on WordPress 7.1.1 and Safari 26.6.2 on WordPress 7.1, both on macOS. These runs covered JPEGs, transparent PNGs, generated sizes, saved results, and larger-output skips. Chrome also passed stopping a run, report refresh, and responsive layout checks. Firefox and older browser versions have not been tested directly. The PHP backend regressions run separately in `tests/browser-wordpress.php`.
+Actual WebP conversions through the WordPress admin passed in Chrome 153.0.8010.52 on WordPress 7.1.1 and Safari 26.6.2 on WordPress 7.1, both on macOS. These runs covered JPEGs, transparent PNGs, generated sizes, saved results, and larger-output skips. Chrome also passed stopping a run, report refresh, and responsive layout checks. Firefox and older browser versions have not been tested directly. The PHP backend regressions run separately in `tests/browser-wordpress.php`, and the AVIF container validators run in `tests/avif-container.php`. A live AVIF run through the admin UI still needs a manual pass in a real browser before release.

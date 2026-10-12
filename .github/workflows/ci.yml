@@ -72,6 +72,8 @@ jobs:
       - name: Confirm the shipped licences cover the bundled codec
         run: |
           grep -qF 'Google Inc' assets/wasm/THIRD-PARTY-NOTICES/libwebp-LICENSE.md
+          grep -qF 'AOMediaCodec/libavif' assets/wasm/THIRD-PARTY-NOTICES/libavif-LICENSE.txt
+          grep -qF 'Alliance for Open Media' assets/wasm/THIRD-PARTY-NOTICES/libaom-LICENSE.txt
           grep -qF 'jamsinclair' assets/wasm/THIRD-PARTY-NOTICES/jsquash-LICENSE.txt
           grep -qF 'Apache License' assets/wasm/THIRD-PARTY-NOTICES/wasm-feature-detect-LICENSE.txt
 
@@ -133,6 +135,23 @@ jobs:
 
       - name: Run the pure-PHP encoder checks
         run: php tests/php-encoder.php
+
+  avif-container:
+    name: AVIF container validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Run the AVIF container checks
+        run: php tests/avif-container.php
 
   wordpress-activation:
     name: WordPress activation (WP ${{ matrix.wordpress }}, PHP ${{ matrix.php }}, ${{ matrix.image_stack }})

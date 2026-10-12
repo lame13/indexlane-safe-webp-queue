@@ -14,7 +14,7 @@ if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 	exit 1
 fi
 
-if ! grep -Fqx ' * Plugin Name: IndexLane Safe WebP Queue' "${plugin_file}"; then
+if ! grep -Fqx ' * Plugin Name: IndexLane Safe WebP & AVIF Queue' "${plugin_file}"; then
 	printf 'The release plugin name is not final.\n' >&2
 	exit 1
 fi
@@ -102,7 +102,7 @@ if [[ ! -f "${package_root}/assets/wasm/safewebp-browser.js" ]]; then
 fi
 
 notice_dir="${package_root}/assets/wasm/THIRD-PARTY-NOTICES"
-for notice in "libwebp-LICENSE.md:Google Inc" "jsquash-LICENSE.txt:jamsinclair" "wasm-feature-detect-LICENSE.txt:Apache License"; do
+for notice in "libwebp-LICENSE.md:Google Inc" "libavif-LICENSE.txt:AOMediaCodec/libavif" "libaom-LICENSE.txt:Alliance for Open Media" "jsquash-LICENSE.txt:jamsinclair" "wasm-feature-detect-LICENSE.txt:Apache License"; do
 	notice_file="${notice%%:*}"
 	notice_text="${notice#*:}"
 	if [[ ! -s "${notice_dir}/${notice_file}" ]] || ! grep -qF "${notice_text}" "${notice_dir}/${notice_file}"; then

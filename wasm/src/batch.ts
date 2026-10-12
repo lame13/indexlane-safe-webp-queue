@@ -1,8 +1,9 @@
-import { encodeWebP } from './encoder';
-import { LIMITS, isRecord, messageOf, positiveInteger, validDimensions } from './protocol';
+import { encodeImage } from './encoder';
+import { LIMITS, isOutputFormat, isRecord, messageOf, outputMime, positiveInteger, validDimensions } from './protocol';
+import type { OutputFormat } from './protocol';
 
 export interface Variant { readonly attachmentId: number; readonly sizeKey: string }
-export interface BatchConfig { readonly prepareUrl: string; readonly finishUrl: string; readonly nonce: string }
+export interface BatchConfig { readonly prepareUrl: string; readonly finishUrl: string; readonly nonce: string; readonly format?: OutputFormat }
 export type JobPhase = 'preparing' | 'downloading' | 'encoding' | 'uploading';
 export interface StoredResult {
   readonly status: 'ready' | 'skipped_not_smaller';
@@ -25,8 +26,11 @@ interface Prepared {
   readonly height: number;
   readonly inputBytes: number;
   readonly mimeType: 'image/jpeg' | 'image/png';
+  readonly format: OutputFormat;
   readonly quality: number;
 }
+
+const FILE_NAME: Record<OutputFormat, string> = { webp: 'converted.webp', avif: 'converted.avif' };
 
 class SessionError extends Error {}
 let batchRunning = false;
@@ -48,6 +52,7 @@ function isPrepared(value: unknown): value is Prepared {
     typeof value.sourceSha256 === 'string' && /^[a-f0-9]{64}$/i.test(value.sourceSha256) &&
     validDimensions(value.width, value.height) && positiveInteger(value.inputBytes, LIMITS.sourceBytes) &&
     (value.mimeType === 'image/jpeg' || value.mimeType === 'image/png') &&
+    isOutputFormat(value.format) &&
     typeof value.quality === 'number' && Number.isFinite(value.quality) && value.quality >= 0 && value.quality <= 100;
 }
 
@@ -153,7 +158,7 @@ export async function runBatch(
       phase('preparing');
       const prepared: unknown = await request(prepareUrl, {
         method: 'POST', headers: { 'X-WP-Nonce': config.nonce, 'Content-Type': 'application/json' },
-        body: JSON.stringify(variant),
+        body: JSON.stringify({ ...variant, ...(config.format === undefined ? {} : { format: config.format }) }),
       }, signal, jsonBody);
       if (isStored(prepared)) {
         if (prepared.outputUrl) sameOriginUrl(prepared.outputUrl);
@@ -168,7 +173,7 @@ export async function runBatch(
         const sha256 = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
         if (sha256 !== prepared.sourceSha256.toLowerCase()) throw new Error('Source content changed. Prepare it again.');
         phase('encoding');
-        const output = await encodeWebP(source, { quality: prepared.quality, lossless: false },
+        const output = await encodeImage(source, { format: prepared.format, quality: prepared.quality, lossless: false },
           signal === undefined ? {} : { signal });
         if (output.width !== prepared.width || output.height !== prepared.height) {
           throw new Error('Source dimensions differ from server metadata.');
@@ -177,7 +182,7 @@ export async function runBatch(
         phase('uploading');
         const body = new FormData();
         body.set('token', prepared.token);
-        body.set('file', new Blob([output.bytes], { type: 'image/webp' }), 'converted.webp');
+        body.set('file', new Blob([output.bytes], { type: outputMime(prepared.format) }), FILE_NAME[prepared.format]);
         const stored: unknown = await request(finishUrl, {
           method: 'POST', headers: { 'X-WP-Nonce': config.nonce }, body,
         }, signal, jsonBody);
