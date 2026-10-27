@@ -7,8 +7,8 @@ const sourcePath = require.resolve('../assets/admin.js');
 let source = fs.readFileSync(sourcePath, 'utf8');
 
 source = source.replace(
-	'\n\tinitializeBrowserSupport();\n\trenderQueueStatus(queueStatus);\n\tscheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);\n})(jQuery);',
-	'\n\tglobalThis.ILSWQ_TestHooks = { csvEscape: csvEscape, formatString: formatString, cleanupQueue: cleanupQueue, renderQueueStatus: renderQueueStatus, renderTotals: renderTotals, matchesReportRow: matchesReportRow, exportCsv: exportCsv, getSelectedEligibleIds: getSelectedEligibleIds, detectBrowserSupport: detectBrowserSupport, browserSelection: browserSelection, browserStartDisabled: browserStartDisabled, formatBytes: formatBytes, recordBrowserOutcome: recordBrowserOutcome, renderBrowserState: renderBrowserState, setQueueStatus: function (next) { queueStatus = next; }, browserSupportState: function () { return browserSupport; }, beginBrowserTotals: function (total) { browserTotals = { converted: 0, skipped: 0, failed: 0, savedBytes: 0, done: 0, total: total }; return browserTotals; }, browserRunTotals: function () { return browserTotals; }, setBrowserFlags: function (next) { if (next.running !== undefined) { browserRunning = next.running; } if (next.finished !== undefined) { browserFinished = next.finished; } if (next.stopped !== undefined) { browserStopped = next.stopped; } }, serverWriter: function () { return serverWriter; }, setReport: function (nextRows, filter, query) { rows = nextRows; rowMap = {}; rows.forEach(function (row, index) { rowMap[row.id] = index; }); activeFilter = filter; searchQuery = query; } };\n\tbrowserSupport = browserEnabled ? detectBrowserSupport() : { ok: false, insecure: false, missing: [] };\n\trenderQueueStatus(queueStatus);\n\tscheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);\n})(jQuery);'
+	'\n\tinitializeBrowserSupport();\n\tupdateMediaReviewControls();\n\tloadAiReviews();\n\trenderQueueStatus(queueStatus);\n\tscheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);\n})(jQuery);',
+	'\n\tglobalThis.ILSWQ_TestHooks = { csvEscape: csvEscape, formatString: formatString, cleanupQueue: cleanupQueue, renderQueueStatus: renderQueueStatus, renderTotals: renderTotals, matchesReportRow: matchesReportRow, exportCsv: exportCsv, getSelectedEligibleIds: getSelectedEligibleIds, aiReviewCandidates: aiReviewCandidates, renderAiReviewCard: renderAiReviewCard, detectBrowserSupport: detectBrowserSupport, browserSelection: browserSelection, browserStartDisabled: browserStartDisabled, formatBytes: formatBytes, recordBrowserOutcome: recordBrowserOutcome, renderBrowserState: renderBrowserState, setQueueStatus: function (next) { queueStatus = next; }, browserSupportState: function () { return browserSupport; }, beginBrowserTotals: function (total) { browserTotals = { converted: 0, skipped: 0, failed: 0, savedBytes: 0, done: 0, total: total }; return browserTotals; }, browserRunTotals: function () { return browserTotals; }, setBrowserFlags: function (next) { if (next.running !== undefined) { browserRunning = next.running; } if (next.finished !== undefined) { browserFinished = next.finished; } if (next.stopped !== undefined) { browserStopped = next.stopped; } }, serverWriter: function () { return serverWriter; }, setReport: function (nextRows, filter, query) { rows = nextRows; rowMap = {}; rows.forEach(function (row, index) { rowMap[row.id] = index; }); activeFilter = filter; searchQuery = query; } };\n\tbrowserSupport = browserEnabled ? detectBrowserSupport() : { ok: false, insecure: false, missing: [] };\n\tupdateMediaReviewControls();\n\tloadAiReviews();\n\trenderQueueStatus(queueStatus);\n\tscheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);\n})(jQuery);'
 );
 
 if (!source.includes('ILSWQ_TestHooks')) {
@@ -180,7 +180,36 @@ const context = {
 			queueConflictComplete: 'Conversion job completed with conflicts',
 			queueLastActivity: 'Last activity: %s',
 			totalsRebuilding: 'Recalculating stored savings...',
-			totalsRebuilt: 'Stored savings were recalculated from the generated WebP files.'
+			totalsRebuilt: 'Stored savings were recalculated from the generated WebP files.',
+			aiNotConfigured: 'Not configured',
+			aiUnsavedSettings: 'Save settings first',
+			aiReviewNone: 'Review Visible Images',
+			aiReviewCount: 'Review %d Visible Images',
+			aiPendingBadge: 'Media Review proposal pending',
+			aiNoCandidates: 'No visible images match this review scope.',
+			aiConfirm: 'Review %1$d visible image(s) with %2$s using %3$s?',
+			aiProgress: 'Reviewing image %1$d of %2$d...',
+			aiComplete: 'Media Review finished.',
+			aiFailed: 'Media Review stopped: %s',
+			aiLoading: 'Loading review proposals...',
+			aiNoReviews: 'No review proposals yet.',
+			aiApplied: 'Alternative text applied.',
+			aiDismissed: 'Review proposal dismissed.',
+			aiRestored: 'Previous alternative text restored.',
+			aiActionFailed: 'The review action failed: %s',
+			aiAltLabel: 'Proposed alternative text',
+			aiDecorative: 'Decorative image',
+			aiCurrentAlt: 'Current alternative text',
+			aiContext: 'Page context',
+			aiPrivacy: 'Privacy check',
+			aiNoPrivacy: 'No clear privacy exposure flagged.',
+			aiApply: 'Apply Alternative Text',
+			aiDismiss: 'Dismiss',
+			aiRestore: 'Restore Previous Text',
+			aiSource: '%1$s · %2$s · %3$s',
+			aiAttention: 'Needs attention',
+			aiNoAltYet: 'Empty',
+			aiSaved: 'Media Review settings saved.'
 		},
 		csvHeaders: []
 	},
@@ -223,11 +252,11 @@ assertEqual(context.ILSWQ_TestHooks.formatString('%2$d failed; %1$d passed', [4,
 context.ILSWQ_TestHooks.renderQueueStatus(context.ILSWQ_Admin.queue);
 
 const reportRows = [
-	{ id: 12, title: '=Summer, Sale', file: 'Summer-Hero.JPG', status_key: 'eligible', eligible: true },
-	{ id: 25, title: 'Summer Logo', file: 'logo.png', status_key: 'conflict', eligible: false },
-	{ id: 37, title: 'Already optimized', file: 'photo.jpg', status_key: 'already-exists', eligible: false },
-	{ id: 48, title: 'Summer Detail', file: 'detail.png', status_key: 'needs-review', eligible: true },
-	{ id: 59, title: null, file: null, status_key: 'skipped', eligible: false }
+	{ id: 12, title: '=Summer, Sale', file: 'Summer-Hero.JPG', mime_type: 'image/jpeg', has_alt_text: false, status_key: 'eligible', eligible: true },
+	{ id: 25, title: 'Summer Logo', file: 'logo.png', mime_type: 'image/png', has_alt_text: true, status_key: 'conflict', eligible: false },
+	{ id: 37, title: 'Already optimized', file: 'photo.jpg', mime_type: 'image/jpeg', has_alt_text: false, status_key: 'already-exists', eligible: false },
+	{ id: 48, title: 'Summer Detail', file: 'detail.png', mime_type: 'image/png', has_alt_text: false, status_key: 'needs-review', eligible: true },
+	{ id: 59, title: null, file: null, mime_type: 'image/svg+xml', has_alt_text: false, status_key: 'skipped', eligible: false }
 ];
 const hooks = context.ILSWQ_TestHooks;
 function matchingIds(filter, query) {
@@ -249,6 +278,8 @@ assertEqual(matchingIds('skipped', ''), '37,59', 'Skipped filter omitted existin
 assertEqual(matchingIds('all', '[.*'), '', 'Search interpreted literal text as a pattern');
 assertEqual(matchingIds('all', 'undefined'), '', 'Missing text fields created a false match');
 assertEqual(matchingIds('all', ''), '12,25,37,48,59', 'Clearing filters did not restore the report');
+hooks.setReport(reportRows, 'all', '');
+assertEqual(hooks.aiReviewCandidates().join(','), '12,25,37,48', 'Media Review included an unsupported image type');
 
 checkboxes = reportRows.map(function (row) { return { value: String(row.id), checked: true }; });
 hooks.setReport(reportRows, 'all', 'hero');

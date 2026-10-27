@@ -17,6 +17,9 @@
 	var browserEnabled = !!(browserConfig && browserConfig.enabled);
 	var browserFormat = browserConfig && browserConfig.format === 'avif' ? 'avif' : 'webp';
 	var phpEnabled = !!(ILSWQ_Admin.settings && parseInt(ILSWQ_Admin.settings.php_conversion, 10) === 1);
+	var mediaReviewConfig = ILSWQ_Admin.mediaReview || null;
+	var mediaReviewBusy = false;
+	var mediaReviewDirty = false;
 	// wp_localize_script casts top-level scalars to strings, so compare explicitly.
 	var serverWriter = ILSWQ_Admin.serverWriter === true || ILSWQ_Admin.serverWriter === '1';
 	var browserSupport = null;
@@ -46,6 +49,50 @@
 			browser_conversion: $form.find('[name="browser_conversion"]').is(':checked') ? 1 : 0,
 			php_conversion: $form.find('[name="php_conversion"]').is(':checked') ? 1 : 0
 		};
+	}
+
+	function getMediaReviewSettings() {
+		var $form = $('#ilswq-ai-settings-form');
+
+		return {
+			enabled: $form.find('[name="enabled"]').is(':checked') ? 1 : 0,
+			provider: $form.find('[name="provider"]').val() || 'openai',
+			model: String($form.find('[name="model"]').val() || '').trim(),
+			api_key: String($form.find('[name="api_key"]').val() || '').trim(),
+			use_context: $form.find('[name="use_context"]').is(':checked') ? 1 : 0,
+			batch_size: parseInt($form.find('[name="batch_size"]').val(), 10) || 5,
+			remove_key: $form.find('[name="remove_key"]').is(':checked') ? 1 : 0
+		};
+	}
+
+	function mediaReviewReady() {
+		return !!(mediaReviewConfig && String(mediaReviewConfig.enabled) === '1' && mediaReviewConfig.configured);
+	}
+
+	function aiReviewCandidates() {
+		var onlyMissing = $('#ilswq-ai-missing-alt').is(':checked');
+		var allowed = {
+			'image/jpeg': true,
+			'image/jpg': true,
+			'image/pjpeg': true,
+			'image/png': true,
+			'image/webp': true
+		};
+		var ids = [];
+
+		rows.forEach(function (row) {
+			if (!matchesReportRow(row) || !allowed[row.mime_type]) {
+				return;
+			}
+			if (onlyMissing && row.has_alt_text) {
+				return;
+			}
+			if (ids.indexOf(parseInt(row.id, 10)) === -1) {
+				ids.push(parseInt(row.id, 10));
+			}
+		});
+
+		return ids.slice(0, mediaReviewConfig ? parseInt(mediaReviewConfig.batchSize, 10) || 5 : 5);
 	}
 
 	function setBusy(nextBusy, canPause) {
@@ -86,6 +133,31 @@
 		$('#ilswq-queue-cancel').prop('disabled', isBusy || !queueStatus || !queueStatus.can_cancel);
 		$('#ilswq-queue-retry').prop('disabled', isBusy || !queueStatus || !queueStatus.can_retry);
 		renderBrowserState();
+		updateMediaReviewControls();
+	}
+
+	function updateMediaReviewControls() {
+		var candidates = aiReviewCandidates();
+		var $review = $('#ilswq-ai-review-visible');
+		var ready = mediaReviewReady() && !mediaReviewDirty;
+		var enabled = mediaReviewConfig && String(mediaReviewConfig.enabled) === '1';
+		var state = mediaReviewDirty
+			? ILSWQ_Admin.strings.aiUnsavedSettings
+			: (ready ? ILSWQ_Admin.strings.browserStateReady : (enabled ? ILSWQ_Admin.strings.aiNotConfigured : ILSWQ_Admin.strings.browserStateOff));
+		var stateClass = ready ? 'is-converted' : 'is-skipped';
+
+		$('#ilswq-ai-save').prop('disabled', mediaReviewBusy);
+		$('#ilswq-ai-state')
+			.removeClass('is-converted is-skipped')
+			.addClass(stateClass)
+			.text(state);
+		$review
+			.prop('disabled', mediaReviewBusy || isBusy || !ready || !candidates.length)
+			.text(
+				candidates.length
+					? formatString(ILSWQ_Admin.strings.aiReviewCount, [candidates.length])
+					: ILSWQ_Admin.strings.aiReviewNone
+			);
 	}
 
 	function showNotice(message, type) {
@@ -350,6 +422,9 @@
 		} else {
 			attachment += ' ' + escapeHtml(row.title);
 		}
+		if (row.ai_review_status === 'pending') {
+			attachment += '<br><span class="ilswq-ai-row-state">' + escapeHtml(ILSWQ_Admin.strings.aiPendingBadge) + '</span>';
+		}
 
 		if (row.source_count_label) {
 			file += '<br><span class="ilswq-muted">' + escapeHtml(row.source_count_label) + '</span>';
@@ -600,6 +675,127 @@
 
 	function showAjaxError(message) {
 		showNotice(message, 'error');
+	}
+
+	function setMediaReviewProgress(current, total) {
+		var percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+		$('#ilswq-ai-progress').prop('hidden', false);
+		$('#ilswq-ai-progress .ilswq-progress-bar span').css('width', percent + '%');
+		$('#ilswq-ai-progress .ilswq-progress-bar').attr('aria-valuenow', percent);
+		$('#ilswq-ai-progress-text').text(
+			formatString(ILSWQ_Admin.strings.aiProgress, [Math.min(current + 1, total), total])
+		);
+	}
+
+	function hideMediaReviewProgress() {
+		$('#ilswq-ai-progress').prop('hidden', true);
+		$('#ilswq-ai-progress .ilswq-progress-bar span').css('width', '0');
+		$('#ilswq-ai-progress-text').text('');
+	}
+
+	function updateReviewRow(review) {
+		var index = rowMap[review.attachment_id];
+		if (index === undefined || !rows[index]) {
+			return;
+		}
+
+		rows[index].ai_review_status = review.status;
+		rows[index].has_alt_text = !!review.current_alt;
+		rows[index].alt_text = review.current_alt || '';
+		upsertRow(rows[index]);
+	}
+
+	function renderAiReviewCard(review) {
+		var statusClass = /^[a-z-]+$/.test(review.status || '') ? review.status : 'pending';
+		var providerLine = formatString(ILSWQ_Admin.strings.aiSource, [
+			review.provider_label || '',
+			review.model || '',
+			review.reviewed_at_label || ''
+		]);
+		var privacy = review.privacy_flags && review.privacy_flags.length
+			? review.privacy_flags.map(function (flag) { return escapeHtml(flag.label); }).join(', ')
+			: ILSWQ_Admin.strings.aiNoPrivacy;
+		var actions = [];
+
+		if (review.can_apply) {
+			actions.push('<button type="button" class="button button-primary ilswq-ai-action" data-action="apply" data-id="' + escapeHtml(review.attachment_id) + '" data-review-id="' + escapeHtml(review.review_id) + '">' + escapeHtml(ILSWQ_Admin.strings.aiApply) + '</button>');
+		}
+		if (review.can_restore) {
+			actions.push('<button type="button" class="button ilswq-ai-action" data-action="undo" data-id="' + escapeHtml(review.attachment_id) + '" data-review-id="' + escapeHtml(review.review_id) + '">' + escapeHtml(ILSWQ_Admin.strings.aiRestore) + '</button>');
+		}
+		if (review.can_dismiss) {
+			actions.push('<button type="button" class="button-link ilswq-ai-action" data-action="dismiss" data-id="' + escapeHtml(review.attachment_id) + '" data-review-id="' + escapeHtml(review.review_id) + '">' + escapeHtml(ILSWQ_Admin.strings.aiDismiss) + '</button>');
+		}
+
+		return [
+			'<article class="ilswq-ai-review is-' + escapeHtml(statusClass) + (review.needs_attention ? ' needs-attention' : '') + '" id="ilswq-ai-review-' + escapeHtml(review.review_id) + '" data-review-id="' + escapeHtml(review.review_id) + '">',
+			'<div class="ilswq-ai-review-head">',
+			review.thumbnail_url ? '<img src="' + escapeHtml(review.thumbnail_url) + '" alt="" width="80" height="80" loading="lazy">' : '',
+			'<div><div class="ilswq-ai-review-title">#' + escapeHtml(review.attachment_id) + ' <a href="' + escapeHtml(review.edit_url) + '">' + escapeHtml(review.title) + '</a></div>',
+			'<span class="ilswq-status is-' + escapeHtml(statusClass) + '">' + escapeHtml(review.status_label) + '</span>',
+			review.needs_attention ? ' <span class="ilswq-ai-attention">' + escapeHtml(ILSWQ_Admin.strings.aiAttention) + '</span>' : '',
+			'<p class="ilswq-muted">' + escapeHtml(providerLine) + '</p></div>',
+			'</div>',
+			'<dl class="ilswq-ai-findings">',
+			'<dt>' + escapeHtml(ILSWQ_Admin.strings.aiAltLabel) + '</dt>',
+			'<dd>' + (review.decorative ? '<em>' + escapeHtml(ILSWQ_Admin.strings.aiDecorative) + '</em>' : (review.alt_text ? escapeHtml(review.alt_text) : '<span class="ilswq-muted">' + escapeHtml(ILSWQ_Admin.strings.aiNoAltYet) + '</span>')) + '</dd>',
+			'<dt>' + escapeHtml(ILSWQ_Admin.strings.aiCurrentAlt) + '</dt>',
+			'<dd>' + (review.current_alt ? escapeHtml(review.current_alt) : '<span class="ilswq-muted">' + escapeHtml(ILSWQ_Admin.strings.aiNoAltYet) + '</span>') + '</dd>',
+			'<dt>' + escapeHtml(ILSWQ_Admin.strings.aiContext) + '</dt>',
+			'<dd><strong>' + escapeHtml(review.context_label) + '</strong>' + (review.context_note ? ' — ' + escapeHtml(review.context_note) : '') + '</dd>',
+			'<dt>' + escapeHtml(ILSWQ_Admin.strings.aiPrivacy) + '</dt>',
+			'<dd>' + privacy + (review.privacy_note ? ' — ' + escapeHtml(review.privacy_note) : '') + '</dd>',
+			'</dl>',
+			actions.length ? '<div class="ilswq-ai-review-actions">' + actions.join('') + '</div>' : '',
+			'</article>'
+		].join('');
+	}
+
+	function upsertAiReview(review) {
+		var selector = '#ilswq-ai-review-' + review.review_id;
+		var $existing = $(selector);
+		if ($existing.length) {
+			$existing.replaceWith(renderAiReviewCard(review));
+		} else {
+			$('#ilswq-ai-reviews').append(renderAiReviewCard(review));
+		}
+	}
+
+	function renderAiReviews(reviews) {
+		$('#ilswq-ai-reviews').empty();
+		if (!reviews || !reviews.length) {
+			$('#ilswq-ai-reviews-status').text(ILSWQ_Admin.strings.aiNoReviews);
+			return;
+		}
+
+		$('#ilswq-ai-reviews-status').text('');
+		reviews.forEach(upsertAiReview);
+	}
+
+	function loadAiReviews() {
+		if (!mediaReviewConfig || !$('#ilswq-ai-reviews').length) {
+			return;
+		}
+
+		$('#ilswq-ai-reviews-status').text(ILSWQ_Admin.strings.aiLoading);
+		ajax('ilswq_ai_reviews', {}).then(function (data) {
+			renderAiReviews(data.reviews || []);
+		}).fail(function (message) {
+			$('#ilswq-ai-reviews-status').text(message);
+		});
+	}
+
+	function reviewAiQueue(ids, index) {
+		if (index >= ids.length) {
+			return $.Deferred().resolve().promise();
+		}
+
+		setMediaReviewProgress(index, ids.length);
+		return ajax('ilswq_ai_review', { id: ids[index] }).then(function (data) {
+			upsertAiReview(data.review);
+			updateReviewRow(data.review);
+			return reviewAiQueue(ids, index + 1);
+		});
 	}
 
 	function finishScan(result) {
@@ -1319,6 +1515,117 @@
 		stopBrowserConversion();
 	});
 
+	$('#ilswq-ai-provider').on('change', function () {
+		var provider = String($(this).val() || '');
+		var config = mediaReviewConfig && mediaReviewConfig.providers ? mediaReviewConfig.providers[provider] : null;
+		if (!config) {
+			return;
+		}
+
+		$('#ilswq-ai-model').attr('placeholder', config.modelHint || '');
+		$('#ilswq-ai-provider-description').text(config.description || '');
+	});
+
+	$('#ilswq-ai-settings-form').on('input change', function () {
+		mediaReviewDirty = true;
+		updateMediaReviewControls();
+	});
+
+	$('#ilswq-ai-settings-form').on('submit', function (event) {
+		event.preventDefault();
+		clearNotice();
+		mediaReviewBusy = true;
+		updateMediaReviewControls();
+
+		ajax('ilswq_ai_save_settings', {
+			review_settings: getMediaReviewSettings()
+		}).then(function (data) {
+			mediaReviewConfig = data.mediaReview || mediaReviewConfig;
+			mediaReviewDirty = false;
+			$('#ilswq-ai-settings-form').find('[name="api_key"]').val('');
+			$('#ilswq-ai-settings-form').find('[name="remove_key"]').prop('checked', false);
+			showNotice(ILSWQ_Admin.strings.aiSaved, 'success');
+		}).fail(showAjaxError).always(function () {
+			mediaReviewBusy = false;
+			updateMediaReviewControls();
+		});
+	});
+
+	$('#ilswq-ai-missing-alt').on('change', updateMediaReviewControls);
+
+	$('#ilswq-ai-review-visible').on('click', function () {
+		var ids = aiReviewCandidates();
+		if (!ids.length) {
+			showNotice(ILSWQ_Admin.strings.aiNoCandidates, 'error');
+			return;
+		}
+		if (!mediaReviewReady()) {
+			showNotice(ILSWQ_Admin.strings.aiReviewNone, 'error');
+			return;
+		}
+
+		var provider = mediaReviewConfig.providerLabel || '';
+		var model = mediaReviewConfig.model || '';
+		if (window.confirm && !window.confirm(formatString(ILSWQ_Admin.strings.aiConfirm, [ids.length, provider, model]))) {
+			return;
+		}
+
+		clearNotice();
+		mediaReviewBusy = true;
+		updateMediaReviewControls();
+		reviewAiQueue(ids, 0).then(function () {
+			showNotice(ILSWQ_Admin.strings.aiComplete, 'success');
+			loadAiReviews();
+		}).fail(function (message) {
+			showNotice(formatString(ILSWQ_Admin.strings.aiFailed, [message]), 'error');
+		}).always(function () {
+			hideMediaReviewProgress();
+			mediaReviewBusy = false;
+			updateMediaReviewControls();
+		});
+	});
+
+	$(document).on('click', '.ilswq-ai-action', function () {
+		if (mediaReviewBusy) {
+			return;
+		}
+
+		var action = String($(this).data('action') || '');
+		var id = parseInt($(this).data('id'), 10) || 0;
+		var reviewId = String($(this).data('review-id') || '');
+		var ajaxAction = {
+			apply: 'ilswq_ai_apply',
+			undo: 'ilswq_ai_undo',
+			dismiss: 'ilswq_ai_dismiss'
+		}[action];
+		if (!ajaxAction || !id || !reviewId) {
+			return;
+		}
+
+		clearNotice();
+		mediaReviewBusy = true;
+		updateMediaReviewControls();
+
+		ajax(ajaxAction, {
+			id: id,
+			review_id: reviewId
+		}).then(function (data) {
+			updateReviewRow(data.review);
+			if (action === 'dismiss') {
+				$('#ilswq-ai-review-' + data.review.review_id).remove();
+				showNotice(ILSWQ_Admin.strings.aiDismissed, 'success');
+			} else {
+				upsertAiReview(data.review);
+				showNotice(action === 'undo' ? ILSWQ_Admin.strings.aiRestored : ILSWQ_Admin.strings.aiApplied, 'success');
+			}
+		}).fail(function (message) {
+			showNotice(formatString(ILSWQ_Admin.strings.aiActionFailed, [message]), 'error');
+		}).always(function () {
+			mediaReviewBusy = false;
+			updateMediaReviewControls();
+		});
+	});
+
 	$('#ilswq-validate-webp').on('click', function () {
 		var ids = generatedAttachmentIds();
 		if (!ids.length) {
@@ -1403,6 +1710,8 @@
 	});
 
 	initializeBrowserSupport();
+	updateMediaReviewControls();
+	loadAiReviews();
 	renderQueueStatus(queueStatus);
 	scheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);
 })(jQuery);

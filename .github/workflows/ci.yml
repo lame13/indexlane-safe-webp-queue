@@ -234,6 +234,9 @@ jobs:
       - name: Run browser conversion backend test
         run: php tests/browser-wordpress.php /tmp/wp
 
+      - name: Run Media Review integration test
+        run: php tests/ai-wordpress.php /tmp/wp
+
   plugin-check:
     name: WordPress Plugin Check
     runs-on: ubuntu-latest

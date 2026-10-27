@@ -1101,7 +1101,8 @@ class ILSWQ_Scanner {
 	 * @return array<string, mixed>
 	 */
 	private function base_row( $attachment_id ) {
-		$title = get_the_title( $attachment_id );
+		$title    = get_the_title( $attachment_id );
+		$alt_text = trim( (string) get_post_meta( $attachment_id, '_wp_attachment_image_alt', true ) );
 
 		return array(
 			'id'                     => $attachment_id,
@@ -1141,6 +1142,9 @@ class ILSWQ_Scanner {
 			'status_key'             => 'skipped',
 			'reason'                 => '',
 			'eligible'               => false,
+			'alt_text'               => $alt_text,
+			'has_alt_text'           => '' !== $alt_text,
+			'ai_review_status'       => class_exists( 'ILSWQ_AI' ) ? ILSWQ_AI::review_status( $attachment_id ) : '',
 		);
 	}
 

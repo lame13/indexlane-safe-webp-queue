@@ -38,8 +38,8 @@ if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
 }
 
 $plugin_data = get_plugin_data( WP_PLUGIN_DIR . '/indexlane-safe-webp-queue/indexlane-safe-webp-queue.php', false, false );
-if ( 'IndexLane Safe WebP & AVIF Queue' !== $plugin_data['Name'] || '1.2.1' !== $plugin_data['Version'] || ILSWQ_VERSION !== $plugin_data['Version'] || ! empty( $plugin_data['UpdateURI'] ) ) {
-	fwrite( STDERR, "Release plugin metadata does not match 1.2.1.\n" );
+if ( 'IndexLane Safe WebP & AVIF Queue' !== $plugin_data['Name'] || '1.3.0' !== $plugin_data['Version'] || ILSWQ_VERSION !== $plugin_data['Version'] || ! empty( $plugin_data['UpdateURI'] ) ) {
+	fwrite( STDERR, "Release plugin metadata does not match 1.3.0.\n" );
 	exit( 1 );
 }
 
@@ -232,6 +232,8 @@ $settings                 = $original_settings;
 $settings['skip_larger']  = 0;
 $settings['serve_webp']   = 0;
 $settings['auto_uploads'] = 0;
+$settings['browser_conversion'] = 0;
+$settings['browser_format']     = 'webp';
 ILSWQ_Settings::save( $settings );
 delete_option( ILSWQ_OPTION_CLEANUP_PAGE );
 delete_option( ILSWQ_Queue::JOB_OPTION );

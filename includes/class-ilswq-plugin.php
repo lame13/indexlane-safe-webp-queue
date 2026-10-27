@@ -153,6 +153,7 @@ class ILSWQ_Plugin {
 				'settings'     => ILSWQ_Settings::get(),
 				'queue'        => $this->queue->get_public_status(),
 				'browser'      => ILSWQ_Browser::admin_config(),
+				'mediaReview'  => ILSWQ_AI::admin_config(),
 				// Server conversion covers the image editor and the bundled
 				// pure-PHP encoder; the browser only replaces the queue when
 				// neither can run here.
@@ -256,6 +257,41 @@ class ILSWQ_Plugin {
 					'browserSizeFrom'           => __( '%s source', 'indexlane-safe-webp-queue' ),
 					/* translators: %s: browser file size, such as "37 KB". */
 					'browserSizeTo'             => __( '%s result', 'indexlane-safe-webp-queue' ),
+					'aiSaved'                   => __( 'Media Review settings saved.', 'indexlane-safe-webp-queue' ),
+					'aiNotConfigured'           => __( 'Not configured', 'indexlane-safe-webp-queue' ),
+					'aiUnsavedSettings'         => __( 'Save settings first', 'indexlane-safe-webp-queue' ),
+					'aiNoCandidates'            => __( 'No visible images match this review scope. Run a scan, clear the search, or allow images that already have alternative text.', 'indexlane-safe-webp-queue' ),
+					/* translators: 1: image count, 2: provider label, 3: model ID. */
+					'aiConfirm'                 => __( 'Review %1$d visible image(s) with %2$s using %3$s? Images and optional page context will be sent to the provider and may incur charges.', 'indexlane-safe-webp-queue' ),
+					/* translators: 1: current image number, 2: total image count. */
+					'aiProgress'                => __( 'Reviewing image %1$d of %2$d...', 'indexlane-safe-webp-queue' ),
+					'aiComplete'                => __( 'Media Review finished. Review the proposals before applying alternative text.', 'indexlane-safe-webp-queue' ),
+					/* translators: %s: error message. */
+					'aiFailed'                  => __( 'Media Review stopped: %s', 'indexlane-safe-webp-queue' ),
+					/* translators: %d: image count. */
+					'aiReviewCount'             => __( 'Review %d Visible Images', 'indexlane-safe-webp-queue' ),
+					'aiReviewNone'              => __( 'Review Visible Images', 'indexlane-safe-webp-queue' ),
+					'aiPendingBadge'            => __( 'Media Review proposal pending', 'indexlane-safe-webp-queue' ),
+					'aiLoading'                 => __( 'Loading review proposals...', 'indexlane-safe-webp-queue' ),
+					'aiNoReviews'               => __( 'No review proposals yet. Scan the library, then review visible images.', 'indexlane-safe-webp-queue' ),
+					'aiApplied'                 => __( 'Alternative text applied.', 'indexlane-safe-webp-queue' ),
+					'aiDismissed'               => __( 'Review proposal dismissed.', 'indexlane-safe-webp-queue' ),
+					'aiRestored'                => __( 'Previous alternative text restored.', 'indexlane-safe-webp-queue' ),
+					/* translators: %s: error message. */
+					'aiActionFailed'            => __( 'The review action failed: %s', 'indexlane-safe-webp-queue' ),
+					'aiAltLabel'                => __( 'Proposed alternative text', 'indexlane-safe-webp-queue' ),
+					'aiDecorative'              => __( 'Decorative image: apply an empty alternative text value.', 'indexlane-safe-webp-queue' ),
+					'aiCurrentAlt'              => __( 'Current alternative text', 'indexlane-safe-webp-queue' ),
+					'aiContext'                 => __( 'Page context', 'indexlane-safe-webp-queue' ),
+					'aiPrivacy'                 => __( 'Privacy check', 'indexlane-safe-webp-queue' ),
+					'aiNoPrivacy'               => __( 'No clear privacy exposure flagged.', 'indexlane-safe-webp-queue' ),
+					'aiApply'                   => __( 'Apply Alternative Text', 'indexlane-safe-webp-queue' ),
+					'aiDismiss'                 => __( 'Dismiss', 'indexlane-safe-webp-queue' ),
+					'aiRestore'                 => __( 'Restore Previous Text', 'indexlane-safe-webp-queue' ),
+					/* translators: 1: provider label, 2: model ID, 3: review date. */
+					'aiSource'                  => __( '%1$s · %2$s · %3$s', 'indexlane-safe-webp-queue' ),
+					'aiAttention'               => __( 'Needs attention', 'indexlane-safe-webp-queue' ),
+					'aiNoAltYet'                => __( 'Empty', 'indexlane-safe-webp-queue' ),
 				),
 				'csvHeaders' => array(
 					__( 'Attachment ID', 'indexlane-safe-webp-queue' ),
@@ -605,6 +641,7 @@ class ILSWQ_Plugin {
 
 				<p class="ilswq-muted ilswq-queue-consequence"><?php esc_html_e( 'Keep this tab open while converting. Closing it stops the remaining work; completed files stay saved. Convert Entire Library and automatic new-upload conversion need a server WebP writer because they run in the background.', 'indexlane-safe-webp-queue' ); ?></p>
 			</section>
+			<?php ILSWQ_AI::render_panel(); ?>
 		</div>
 		<?php
 	}

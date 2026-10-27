@@ -4,7 +4,7 @@ Tags: webp, avif, image optimization, media library, performance
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.2.1
+Stable tag: 1.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -19,6 +19,12 @@ Turn your Media Library's JPEGs, PNGs, thumbnails, and other WordPress image siz
 Safe WebP & AVIF Queue works with your hosting's image tools, a bundled browser encoder, or an optional built-in PHP encoder. Even if your host can display WebP or AVIF but cannot create them, you still have a way to convert. Your original JPEGs and PNGs stay where they are.
 
 No subscription, conversion credits, API key, or external conversion service. Everything needed for conversion is included in the plugin.
+
+= Optional Media Review =
+
+The conversion queue stays account-free. If you already have an OpenAI, Claude, or Grok API key, an optional **Media Review** panel can inspect selected images for page-context mismatches, clearly visible privacy exposure, decorative images, and missing alternative text.
+
+Media Review is off by default. It sends a metadata-stripped preview and an optional parent-page title and short excerpt directly to the provider you choose. Provider API charges apply. Every result stays a proposal until an administrator applies alternative text, and the previous value can be restored while that review remains current. The plugin does not summarize page content or automatically publish AI-generated text.
 
 * **Keep control:** scan first, convert a few images, and review the results before serving the generated copies.
 * **Work at your pace:** use resumable background jobs or selected browser conversions.
@@ -126,7 +132,7 @@ Open **Tools -> IndexLane Safe WebP & AVIF Queue**, scan your library, and try a
 
 == Frequently Asked Questions ==
 
-= Does version 1.2.1 still work on PHP 7.4? =
+= Does version 1.3.0 still work on PHP 7.4? =
 
 Yes. The plugin still requires only PHP 7.4. picowebp is an optional conversion backend, not a requirement for using the plugin. On PHP 7.4 or 8.0 its library is not loaded and its setting is disabled automatically. Server conversion through compatible GD or Imagick, browser conversion, reports, and the other plugin features remain available.
 
@@ -144,7 +150,19 @@ Results vary by image and quality setting. The report shows actual file sizes an
 
 = Do I need an account, API key, or cloud service? =
 
-No. Conversion runs on your hosting or on your computer, depending on the method you choose. Browser conversion exchanges images only with your own WordPress site. The plugin does not use an external optimization API, account, or credit system.
+No, not for conversion. Conversion runs on your hosting or on your computer, depending on the method you choose. Browser conversion exchanges images only with your own WordPress site. The conversion queue does not use an external optimization API, account, or credit system.
+
+Media Review is separate and optional. It requires a provider API key that you own, and provider charges may apply.
+
+= How does optional Media Review handle my images? =
+
+Media Review sends one metadata-stripped preview at a time to the provider selected in the plugin: OpenAI, Claude, or Grok. The preview is resized to at most 1600 pixels on its longest edge and capped at 4 MiB. If **Include the linked page title and a short text excerpt** is enabled, the attachment's parent-page title and up to 700 plain-text characters are sent as context.
+
+The provider returns structured findings, not a page summary. Findings remain proposals until you choose **Apply Alternative Text**. The previous alternative text is retained so **Restore Previous Text** can undo the change if nobody edited the value afterward. Review the provider's own data and retention terms before enabling the feature.
+
+= How are Media Review API keys stored? =
+
+You can define `ILSWQ_AI_API_KEY` in `wp-config.php`, which keeps the key out of the database. Otherwise the plugin encrypts the key with AES-256-GCM using a key derived from your WordPress authentication salt. The saved key is never loaded into the browser, shown in the settings field, included in a report, or written to the review history. If your server cannot provide the required cryptography functions, the plugin asks you to use the constant instead.
 
 = What if my server cannot create WebP files? =
 
@@ -236,6 +254,12 @@ The plugin detects source-file and quality-setting changes before regenerating i
 6. See the completed browser run, including the files saved and any copies skipped because they were not smaller.
 
 == Changelog ==
+
+= 1.3.0 =
+
+* Added optional Media Review with bring-your-own keys for OpenAI, Claude, and Grok while keeping conversion account-free.
+* Added review proposals for page-context mismatch, visible privacy exposure, decorative images, and alternative text. Nothing changes until an administrator applies a proposal.
+* Added reversible alternative-text application, encrypted key storage, an `ILSWQ_AI_API_KEY` override, metadata-stripped previews, optional page context, bounded requests, and strict provider result validation.
 
 = 1.2.1 =
 

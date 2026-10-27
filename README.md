@@ -6,6 +6,14 @@ Your hosting plan may be light on image tools. Your images don't have to stay he
 
 Shared hosting can lack WebP support or enough PHP memory for image conversion. Enable **Convert images in the browser** and your computer does the encoding with the plugin's bundled WebAssembly encoder. Each source comes from your own site; each finished image goes back there. There is no desktop app or browser extension to install.
 
+## Optional Media Review
+
+If you already use OpenAI, Claude, or Grok, **Media Review** can inspect selected images for page-context mismatches, clearly visible privacy exposure, decorative-image classification, and missing alternative text. It is off by default and does not change the conversion workflow.
+
+Review uses your own provider API key and sends one temporary, metadata-stripped preview at a time. The preview is resized to at most 1600 pixels and 4 MiB. You can optionally include the linked page title and up to 700 characters of plain-text context. Every result becomes a proposal; an administrator must explicitly apply alternative text, and the previous value can be restored if it has not been edited since.
+
+Stored keys are encrypted with AES-256-GCM using WordPress salts. Defining `ILSWQ_AI_API_KEY` in `wp-config.php` keeps the key out of the database. The key is never sent to the browser.
+
 Choose **WebP** or **AVIF** under **Browser conversion format**. AVIF can produce smaller files, depending on the image and quality settings. It is offered through a `<picture>` element when all responsive candidates have matching AVIF copies; WebP or your original image remains the fallback. AVIF is browser-only in this version: GD and Imagick cannot be relied on to encode AVIF on shared hosting.
 
 If WordPress has GD or Imagick with WebP support, server conversion can handle selected images, the whole library, and future uploads in background batches. On PHP 8.1+ the bundled pure-PHP encoder does the same even when no image editor can write WebP. The standalone `cwebp` command is not used by this version.
@@ -88,6 +96,7 @@ node --check assets/admin.js
 node tests/admin-js.js
 php tests/php-encoder.php
 php tests/avif-container.php
+php tests/ai-wordpress.php /path/to/wordpress
 bash scripts/check-i18n.sh
 ```
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0 - 2026-10-27
+
+- Added optional **Media Review** with bring-your-own API keys for OpenAI, Claude, and Grok. Conversion remains account-free and works without any AI provider.
+- Added a human-review proposal queue for page-context mismatches, clearly visible privacy exposure, decorative-image classification, and alternative text. AI suggestions never change attachment metadata until an administrator applies them.
+- Added reversible alternative-text application. A proposal is bound to the current value, and a later edit blocks both apply and restore instead of overwriting newer work.
+- Added encrypted server-side key storage with a WordPress-salt-derived AES-256-GCM key, an `ILSWQ_AI_API_KEY` constant override, masked settings, and no key in browser configuration or downloadable reports.
+- Added bounded review requests: plugin-generated previews are capped at 1600 pixels and 4 MiB, source metadata is not forwarded with the preview, and parent title/excerpt context is optional.
+- Added provider-specific structured contracts for OpenAI and Grok Responses APIs and Claude tool use, plus strict validation of every returned field.
+- Added Media Review status to scanned rows, report-scoped review controls, proposal cards, privacy and context evidence, explicit apply/dismiss actions, and restore controls for applied text.
+- Added mocked WordPress integration coverage for all three provider request shapes, encryption, proposal persistence, apply, undo, dismissal, and decorative-image handling.
+
 ## 1.2.1 - 2026-10-12
 
 - Preserve ownership when generated files are stale, missing, or damaged, so quality changes and repairs can regenerate them.
