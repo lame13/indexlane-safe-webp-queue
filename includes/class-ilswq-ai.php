@@ -164,6 +164,8 @@ class ILSWQ_AI {
 			'batchSize'     => (int) $settings['batch_size'],
 			'hasKey'        => '' !== $key_source,
 			'keySource'     => $key_source,
+			'keyState'      => 'constant' === $key_source ? __( 'The API key is supplied by ILSWQ_AI_API_KEY.', 'indexlane-safe-webp-queue' ) : ( 'stored' === $key_source ? __( 'A provider key is stored encrypted in this database.', 'indexlane-safe-webp-queue' ) : __( 'No provider key is stored.', 'indexlane-safe-webp-queue' ) ),
+			'keyPlaceholder' => 'constant' === $key_source ? __( 'Using ILSWQ_AI_API_KEY', 'indexlane-safe-webp-queue' ) : ( 'stored' === $key_source ? __( 'Saved key is hidden; leave blank to keep it', 'indexlane-safe-webp-queue' ) : __( 'Paste the provider API key', 'indexlane-safe-webp-queue' ) ),
 			'providers'     => $providers,
 		);
 	}
@@ -225,12 +227,10 @@ class ILSWQ_AI {
 					<input type="checkbox" name="use_context" value="1" <?php checked( $settings['use_context'], 1 ); ?>>
 					<span><?php esc_html_e( 'Include the linked page title and a short text excerpt', 'indexlane-safe-webp-queue' ); ?></span>
 				</label>
-				<?php if ( $has_stored_key ) : ?>
-					<label class="ilswq-ai-checkbox">
+					<label class="ilswq-ai-checkbox" id="ilswq-ai-remove-key" <?php echo $has_stored_key ? '' : 'hidden'; ?>>
 						<input type="checkbox" name="remove_key" value="1">
 						<span><?php esc_html_e( 'Remove the stored API key', 'indexlane-safe-webp-queue' ); ?></span>
 					</label>
-				<?php endif; ?>
 				<div class="ilswq-ai-form-actions">
 					<button type="submit" class="button" id="ilswq-ai-save"><?php esc_html_e( 'Save Media Review Settings', 'indexlane-safe-webp-queue' ); ?></button>
 					<span id="ilswq-ai-key-state" class="description">
@@ -281,7 +281,7 @@ class ILSWQ_AI {
 		self::verify_ajax();
 		check_ajax_referer( 'ilswq_admin', 'nonce' );
 
-		$raw = isset( $_POST['review_settings'] ) && is_array( $_POST['review_settings'] ) ? wp_unslash( $_POST['review_settings'] ) : array();
+		$raw = isset( $_POST['review_settings'] ) && is_array( $_POST['review_settings'] ) ? array_map( 'sanitize_text_field', wp_unslash( $_POST['review_settings'] ) ) : array();
 
 		try {
 			$saved = self::save_settings( $raw );
@@ -369,6 +369,7 @@ class ILSWQ_AI {
 	 * @return array<string,mixed>|WP_Error
 	 */
 	private static function requested_review_action( $action ) {
+		check_ajax_referer( 'ilswq_admin', 'nonce' );
 		$attachment_id = isset( $_POST['id'] ) && is_scalar( $_POST['id'] ) ? absint( sanitize_text_field( wp_unslash( (string) $_POST['id'] ) ) ) : 0;
 		$review_id     = isset( $_POST['review_id'] ) && is_scalar( $_POST['review_id'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['review_id'] ) ) : '';
 
@@ -411,10 +412,11 @@ class ILSWQ_AI {
 	 */
 	public static function save_settings( $raw ) {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			throw new RuntimeException( __( 'Permission denied.', 'indexlane-safe-webp-queue' ) );
+			throw new RuntimeException( esc_html__( 'Permission denied.', 'indexlane-safe-webp-queue' ) );
 		}
 
 		$settings             = self::get_settings();
+		$previous_provider    = $settings['provider'];
 		$settings['enabled']   = ! empty( $raw['enabled'] ) ? 1 : 0;
 		$settings['provider']  = isset( $raw['provider'] ) ? sanitize_key( (string) $raw['provider'] ) : 'openai';
 		$settings['model']     = isset( $raw['model'] ) ? substr( sanitize_text_field( (string) $raw['model'] ), 0, 120 ) : '';
@@ -422,32 +424,37 @@ class ILSWQ_AI {
 		$settings['batch_size'] = isset( $raw['batch_size'] ) ? max( 1, min( self::MAX_IMAGES, absint( $raw['batch_size'] ) ) ) : 5;
 
 		if ( ! isset( self::providers()[ $settings['provider'] ] ) ) {
-			throw new InvalidArgumentException( __( 'Choose OpenAI, Claude, or Grok.', 'indexlane-safe-webp-queue' ) );
+			throw new InvalidArgumentException( esc_html__( 'Choose OpenAI, Claude, or Grok.', 'indexlane-safe-webp-queue' ) );
 		}
 
 		$constant_key = defined( 'ILSWQ_AI_API_KEY' ) && '' !== trim( (string) ILSWQ_AI_API_KEY );
 		$new_key      = isset( $raw['api_key'] ) && is_scalar( $raw['api_key'] ) ? trim( (string) $raw['api_key'] ) : '';
+
+		// A saved credential belongs to the provider it was entered for.
+		if ( $previous_provider !== $settings['provider'] ) {
+			$settings['key_encrypted'] = '';
+		}
 
 		if ( ! empty( $raw['remove_key'] ) && ! $constant_key ) {
 			$settings['key_encrypted'] = '';
 		}
 		if ( '' !== $new_key && ! $constant_key ) {
 			if ( strlen( $new_key ) > 512 || preg_match( '/\s/', $new_key ) ) {
-				throw new InvalidArgumentException( __( 'The API key is not in a usable format.', 'indexlane-safe-webp-queue' ) );
+				throw new InvalidArgumentException( esc_html__( 'The API key is not in a usable format.', 'indexlane-safe-webp-queue' ) );
 			}
 			$encrypted = self::encrypt_secret( $new_key );
 			if ( is_wp_error( $encrypted ) ) {
-				throw new RuntimeException( $encrypted->get_error_message() );
+				throw new RuntimeException( esc_html( $encrypted->get_error_message() ) );
 			}
 			$settings['key_encrypted'] = $encrypted;
 		}
 
 		if ( $settings['enabled'] ) {
 			if ( '' === $settings['model'] ) {
-				throw new InvalidArgumentException( __( 'Enter a vision-capable model ID before enabling Media Review.', 'indexlane-safe-webp-queue' ) );
+				throw new InvalidArgumentException( esc_html__( 'Enter a vision-capable model ID before enabling Media Review.', 'indexlane-safe-webp-queue' ) );
 			}
 			if ( '' === self::get_key_source_from_settings( $settings, $constant_key ) ) {
-				throw new InvalidArgumentException( __( 'Enter a provider API key before enabling Media Review.', 'indexlane-safe-webp-queue' ) );
+				throw new InvalidArgumentException( esc_html__( 'Enter a provider API key before enabling Media Review.', 'indexlane-safe-webp-queue' ) );
 			}
 		}
 
@@ -489,6 +496,9 @@ class ILSWQ_AI {
 		}
 
 		try {
+			$file          = get_attached_file( $attachment_id );
+			$source_hash   = $file && is_readable( $file ) ? hash_file( 'sha256', $file ) : false;
+			$alt_at_review = self::current_alt( $attachment_id );
 			$preview = self::prepare_preview( $attachment_id );
 			if ( is_wp_error( $preview ) ) {
 				return $preview;
@@ -500,7 +510,7 @@ class ILSWQ_AI {
 				return $result;
 			}
 
-			$proposal = self::build_proposal( $attachment_id, $settings, $result, $context );
+			$proposal = self::build_proposal( $attachment_id, $settings, $result, $context, $source_hash, $alt_at_review );
 			if ( is_wp_error( $proposal ) ) {
 				return $proposal;
 			}
@@ -508,6 +518,9 @@ class ILSWQ_AI {
 
 			return self::prepare_review_payload( $proposal );
 		} finally {
+			if ( is_array( $preview ?? null ) && ! empty( $preview['path'] ) && file_exists( $preview['path'] ) ) {
+				wp_delete_file( $preview['path'] );
+			}
 			delete_option( $lock_name );
 		}
 	}
@@ -555,7 +568,7 @@ class ILSWQ_AI {
 		usort(
 			$reviews,
 			static function ( $left, $right ) {
-				if ( $left['status'] !== $right['status'] ) {
+				if ( ( 'pending' === $left['status'] ) !== ( 'pending' === $right['status'] ) ) {
 					return 'pending' === $left['status'] ? -1 : 1;
 				}
 				return (int) $right['reviewed_at'] <=> (int) $left['reviewed_at'];
@@ -594,12 +607,16 @@ class ILSWQ_AI {
 		}
 
 		$current_alt = self::current_alt( $attachment_id );
+		$file        = get_attached_file( $attachment_id );
+		if ( ! $file || ! is_readable( $file ) || empty( $proposal['source_hash'] ) || hash_file( 'sha256', $file ) !== $proposal['source_hash'] ) {
+			return new WP_Error( 'ilswq_ai_conflict', __( 'The image changed after this review. Run the review again before applying it.', 'indexlane-safe-webp-queue' ) );
+		}
 		if ( $current_alt !== (string) $proposal['alt_at_review'] ) {
 			return new WP_Error( 'ilswq_ai_conflict', __( 'The attachment alternative text changed after this review. Run the review again before applying it.', 'indexlane-safe-webp-queue' ) );
 		}
 
 		$new_alt = (string) $proposal['alt_text'];
-		if ( ! update_post_meta( $attachment_id, '_wp_attachment_image_alt', $new_alt ) && $current_alt !== $new_alt ) {
+		if ( ! update_post_meta( $attachment_id, '_wp_attachment_image_alt', wp_slash( $new_alt ) ) && $current_alt !== $new_alt ) {
 			return new WP_Error( 'ilswq_ai_save', __( 'WordPress could not save the alternative text.', 'indexlane-safe-webp-queue' ) );
 		}
 
@@ -636,7 +653,7 @@ class ILSWQ_AI {
 		}
 
 		$previous = (string) $proposal['alt_before_apply'];
-		if ( ! update_post_meta( $attachment_id, '_wp_attachment_image_alt', $previous ) && $current_alt !== $previous ) {
+		if ( ! update_post_meta( $attachment_id, '_wp_attachment_image_alt', wp_slash( $previous ) ) && $current_alt !== $previous ) {
 			return new WP_Error( 'ilswq_ai_save', __( 'WordPress could not restore the previous alternative text.', 'indexlane-safe-webp-queue' ) );
 		}
 
@@ -720,7 +737,7 @@ class ILSWQ_AI {
 	 * @return void
 	 */
 	private static function store_proposal( $attachment_id, $proposal ) {
-		update_post_meta( $attachment_id, self::REVIEW_META, $proposal );
+		update_post_meta( $attachment_id, self::REVIEW_META, wp_slash( $proposal ) );
 		update_post_meta( $attachment_id, self::REVIEW_TIME_META, isset( $proposal['reviewed_at'] ) ? max( 0, (int) $proposal['reviewed_at'] ) : time() );
 		update_post_meta( $attachment_id, self::REVIEW_STATE_META, isset( $proposal['status'] ) ? sanitize_key( (string) $proposal['status'] ) : 'pending' );
 	}
@@ -748,6 +765,11 @@ class ILSWQ_AI {
 		$editor = wp_get_image_editor( $file );
 		if ( is_wp_error( $editor ) ) {
 			return new WP_Error( 'ilswq_ai_editor', __( 'WordPress cannot prepare a temporary review copy of this image.', 'indexlane-safe-webp-queue' ) );
+		}
+
+		$rotated = $editor->maybe_exif_rotate();
+		if ( is_wp_error( $rotated ) ) {
+			return new WP_Error( 'ilswq_ai_preview', __( 'WordPress could not orient the temporary review copy.', 'indexlane-safe-webp-queue' ) );
 		}
 
 		$size = $editor->get_size();
@@ -781,10 +803,29 @@ class ILSWQ_AI {
 		}
 
 		$path  = isset( $saved['path'] ) ? (string) $saved['path'] : $temporary;
-		$bytes = is_readable( $path ) ? (int) filesize( $path ) : 0;
 		if ( $path !== $temporary && file_exists( $temporary ) ) {
 			wp_delete_file( $temporary );
 		}
+		// Imagick's save() alone keeps metadata when no resize was needed.
+		// Strip the bounded preview explicitly; GD already removes metadata.
+		if ( $editor instanceof WP_Image_Editor_Imagick ) {
+			$clean = null;
+			try {
+				$clean = new Imagick( $path );
+				if ( ! $clean->stripImage() || ! $clean->writeImage( $path ) ) {
+					throw new RuntimeException( 'Could not strip preview metadata.' );
+				}
+			} catch ( Exception $exception ) {
+				wp_delete_file( $path );
+				return new WP_Error( 'ilswq_ai_preview', __( 'WordPress could not remove metadata from the temporary review copy.', 'indexlane-safe-webp-queue' ) );
+			} finally {
+				if ( $clean instanceof Imagick ) {
+					$clean->clear();
+				}
+			}
+		}
+		clearstatcache( true, $path );
+		$bytes = is_readable( $path ) ? (int) filesize( $path ) : 0;
 		if ( $bytes <= 0 || $bytes > self::MAX_PREVIEW ) {
 			if ( file_exists( $path ) ) {
 				wp_delete_file( $path );
@@ -794,7 +835,7 @@ class ILSWQ_AI {
 
 		return array(
 			'path'      => $path,
-			'mime_type' => isset( $saved['mime_type'] ) ? (string) $saved['mime_type'] : $preview_mime,
+			'mime_type' => isset( $saved['mime-type'] ) ? (string) $saved['mime-type'] : $preview_mime,
 			'bytes'     => $bytes,
 		);
 	}
@@ -843,7 +884,7 @@ class ILSWQ_AI {
 	 * @return array<string,mixed>|WP_Error
 	 */
 	private static function request_review( $attachment_id, $settings, $preview, $context ) {
-		$key = self::get_api_key();
+		$key = self::get_api_key( $settings );
 		if ( is_wp_error( $key ) ) {
 			return $key;
 		}
@@ -905,7 +946,8 @@ class ILSWQ_AI {
 			$body = array(
 				'model'             => $settings['model'],
 				'store'             => false,
-				'max_output_tokens' => 700,
+				// Responses models share this budget with their reasoning tokens.
+				'max_output_tokens' => 4096,
 				'input'             => array(
 					array(
 						'role'    => 'user',
@@ -962,7 +1004,7 @@ class ILSWQ_AI {
 		$status = (int) wp_remote_retrieve_response_code( $response );
 		$decoded = json_decode( (string) wp_remote_retrieve_body( $response ), true );
 		if ( $status < 200 || $status >= 300 ) {
-			$message = is_array( $decoded ) && isset( $decoded['error']['message'] ) ? self::short_error( (string) $decoded['error']['message'] ) : '';
+			$message = is_array( $decoded ) && isset( $decoded['error']['message'] ) && is_string( $decoded['error']['message'] ) ? self::short_error( str_replace( $key, '[redacted]', $decoded['error']['message'] ) ) : '';
 			return new WP_Error(
 				'ilswq_ai_provider',
 				sprintf(
@@ -1019,6 +1061,9 @@ class ILSWQ_AI {
 	 * @return array<string,mixed>|WP_Error
 	 */
 	private static function extract_responses_result( $response ) {
+		if ( isset( $response['status'] ) && 'completed' !== $response['status'] ) {
+			return new WP_Error( 'ilswq_ai_response', __( 'The provider did not finish the review. Try again or choose another vision model.', 'indexlane-safe-webp-queue' ) );
+		}
 		if ( isset( $response['output_text'] ) && is_string( $response['output_text'] ) ) {
 			return self::decode_json_result( $response['output_text'] );
 		}
@@ -1085,6 +1130,12 @@ class ILSWQ_AI {
 			}
 		}
 
+		foreach ( array( 'alt_text', 'context_note', 'privacy_note' ) as $key ) {
+			if ( ! is_string( $result[ $key ] ) ) {
+				return new WP_Error( 'ilswq_ai_schema', __( 'The provider returned invalid review text.', 'indexlane-safe-webp-queue' ) );
+			}
+		}
+
 		$decorative = is_bool( $result['decorative'] ) ? $result['decorative'] : null;
 		$match      = is_string( $result['context_match'] ) ? sanitize_key( $result['context_match'] ) : '';
 		$priority   = is_string( $result['review_priority'] ) ? sanitize_key( $result['review_priority'] ) : '';
@@ -1094,20 +1145,22 @@ class ILSWQ_AI {
 
 		$allowed_flags = array( 'email', 'phone_number', 'person_name', 'account_identifier', 'credential', 'financial', 'health', 'other_sensitive' );
 		$flags         = array();
-		if ( ! is_array( $result['privacy_flags'] ) ) {
+		if ( ! is_array( $result['privacy_flags'] ) || count( $result['privacy_flags'] ) > 8 ) {
 			return new WP_Error( 'ilswq_ai_schema', __( 'The provider returned invalid privacy findings.', 'indexlane-safe-webp-queue' ) );
 		}
-		foreach ( array_slice( $result['privacy_flags'], 0, 8 ) as $flag ) {
-			$flag = is_string( $flag ) ? sanitize_key( $flag ) : '';
-			if ( in_array( $flag, $allowed_flags, true ) ) {
-				$flags[] = $flag;
+		foreach ( $result['privacy_flags'] as $flag ) {
+			if ( ! is_string( $flag ) || ! in_array( $flag, $allowed_flags, true ) ) {
+				return new WP_Error( 'ilswq_ai_schema', __( 'The provider returned invalid privacy findings.', 'indexlane-safe-webp-queue' ) );
 			}
+			$flags[] = $flag;
 		}
 
 		$alt = is_string( $result['alt_text'] ) ? sanitize_text_field( $result['alt_text'] ) : '';
 		$alt = self::truncate( trim( $alt ), self::MAX_ALT_LENGTH );
 		if ( $decorative ) {
 			$alt = '';
+		} elseif ( '' === $alt ) {
+			return new WP_Error( 'ilswq_ai_schema', __( 'The provider returned no alternative text for a non-decorative image.', 'indexlane-safe-webp-queue' ) );
 		}
 
 		return array(
@@ -1128,12 +1181,17 @@ class ILSWQ_AI {
 	 * @param array<string,mixed>  $settings Settings.
 	 * @param array<string,mixed>  $result Validated result.
 	 * @param array<string,string> $context Context.
+	 * @param string|false         $source_hash Source hash before the request.
+	 * @param string               $alt_at_review Alternative text before the request.
 	 * @return array<string,mixed>|WP_Error
 	 */
-	private static function build_proposal( $attachment_id, $settings, $result, $context ) {
+	private static function build_proposal( $attachment_id, $settings, $result, $context, $source_hash, $alt_at_review ) {
 		$file = get_attached_file( $attachment_id );
-		if ( empty( $file ) || ! is_file( $file ) ) {
+		if ( empty( $file ) || ! is_readable( $file ) || ! $source_hash || hash_file( 'sha256', $file ) !== $source_hash ) {
 			return new WP_Error( 'ilswq_ai_file', __( 'The image file changed while it was being reviewed.', 'indexlane-safe-webp-queue' ) );
+		}
+		if ( self::current_alt( $attachment_id ) !== $alt_at_review ) {
+			return new WP_Error( 'ilswq_ai_conflict', __( 'The alternative text changed while the image was being reviewed. Run the review again.', 'indexlane-safe-webp-queue' ) );
 		}
 
 		return array(
@@ -1147,14 +1205,14 @@ class ILSWQ_AI {
 			'reviewed_at'     => time(),
 			'reviewed_by'     => get_current_user_id(),
 			'alt_text'        => (string) $result['alt_text'],
-			'alt_at_review'   => self::current_alt( $attachment_id ),
+			'alt_at_review'   => $alt_at_review,
 			'decorative'      => (bool) $result['decorative'],
 			'context_match'   => (string) $result['context_match'],
 			'context_note'    => (string) $result['context_note'],
 			'privacy_flags'   => (array) $result['privacy_flags'],
 			'privacy_note'    => (string) $result['privacy_note'],
 			'review_priority' => (string) $result['review_priority'],
-			'source_hash'     => hash_file( 'sha256', $file ),
+			'source_hash'     => $source_hash,
 		);
 	}
 
@@ -1240,7 +1298,7 @@ class ILSWQ_AI {
 	 * @return string
 	 */
 	public static function current_alt( $attachment_id ) {
-		return trim( (string) get_post_meta( absint( $attachment_id ), '_wp_attachment_image_alt', true ) );
+		return (string) get_post_meta( absint( $attachment_id ), '_wp_attachment_image_alt', true );
 	}
 
 	/**
@@ -1372,14 +1430,14 @@ class ILSWQ_AI {
 	/**
 	 * Read the server-only API key.
 	 *
+	 * @param array<string,mixed> $settings Settings captured for this request.
 	 * @return string|WP_Error
 	 */
-	private static function get_api_key() {
+	private static function get_api_key( $settings ) {
 		if ( defined( 'ILSWQ_AI_API_KEY' ) && '' !== trim( (string) ILSWQ_AI_API_KEY ) ) {
 			return trim( (string) ILSWQ_AI_API_KEY );
 		}
 
-		$settings = self::get_settings();
 		if ( empty( $settings['key_encrypted'] ) ) {
 			return new WP_Error( 'ilswq_ai_key', __( 'No Media Review API key is configured.', 'indexlane-safe-webp-queue' ) );
 		}

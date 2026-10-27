@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.1 - 2026-10-27
+
+- Keep saved API keys with their original provider and hide credentials echoed by provider errors.
+- Remove metadata from small Imagick previews, orient previews correctly, and clean up temporary files when a review fails.
+- Preserve alternative text exactly through proposal storage, apply, and restore; reject stale proposals after image or text changes.
+- Reject malformed or incomplete AI results, and allow room for reasoning tokens in Responses API requests.
+- Refresh saved-key controls and replace superseded proposal cards correctly; fix proposal ordering and show server error messages instead of [object Object].
+- Resolve Plugin Check escaping errors and verify AJAX input sanitization and nonce checks.
+- Expand the readme with real AI capabilities, practical uses, and clear conversion and review boundaries.
+
 ## 1.3.0 - 2026-10-27
 
 - Added optional **Media Review** with bring-your-own API keys for OpenAI, Claude, and Grok. Conversion remains account-free and works without any AI provider.

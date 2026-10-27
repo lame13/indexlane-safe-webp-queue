@@ -1,38 +1,53 @@
 === IndexLane Safe WebP & AVIF Queue ===
 Contributors: wpfixpath
-Tags: webp, avif, image optimization, media library, performance
+Tags: webp, avif, image optimization, alt text, ai
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.3.0
+Stable tag: 1.3.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Create WebP and AVIF copies while keeping originals. Convert on your hosting or in your browser, with no cloud service or API key.
+Smaller WebP and AVIF images, plus optional AI alt text, context checks, and privacy flags. Keep originals and approve every text change.
 
 == Description ==
 
-**AVIF and WebP in one free plugin. Smaller image downloads, no credits, no API key, and your originals stay safe.**
+**Smaller images. Smarter media reviews. You stay in control.**
 
-Turn your Media Library's JPEGs, PNGs, thumbnails, and other WordPress image sizes into WebP or **AVIF** copies. AVIF can produce smaller files than WebP; results depend on your images and quality settings. Check the actual savings, then choose when your site starts serving them to visitors.
+Give your WordPress Media Library two useful upgrades: **WebP and AVIF conversion** to reduce image downloads, and optional **AI Media Review** to help you write alternative text and spot images that deserve a closer look.
 
-Safe WebP & AVIF Queue works with your hosting's image tools, a bundled browser encoder, or an optional built-in PHP encoder. Even if your host can display WebP or AVIF but cannot create them, you still have a way to convert. Your original JPEGs and PNGs stay where they are.
+Keep your original images. See the actual savings. Review AI suggestions before applying them. One plugin brings image conversion and a second pair of eyes into your WordPress admin.
 
-No subscription, conversion credits, API key, or external conversion service. Everything needed for conversion is included in the plugin.
+= Put AI to work on your Media Library =
 
-= Optional Media Review =
+Connect your own **OpenAI, Claude, or Grok API key** and choose a vision-capable model. Media Review can help you:
 
-The conversion queue stays account-free. If you already have an OpenAI, Claude, or Grok API key, an optional **Media Review** panel can inspect selected images for page-context mismatches, clearly visible privacy exposure, decorative images, and missing alternative text.
+* **Draft alternative text:** get a concise description proposal instead of starting from a blank field. Focus on images without alt text, or include images that already have it.
+* **Catch possible context mismatches:** compare an image with its attachment parent page's title and a short excerpt. Useful for spotting a product photo or illustration that may not fit the surrounding topic.
+* **Spot visible privacy concerns:** flag readable email addresses, phone numbers, names, account identifiers, credentials, and other sensitive information visible in the image. Handy when reviewing screenshots before sharing them.
+* **Identify potentially decorative images:** review suggestions for empty alt text when an image adds no information.
+* **Act on clear proposals:** see the suggested text alongside the current text, context findings, and privacy flags. Apply or dismiss each proposal yourself.
 
-Media Review is off by default. It sends a metadata-stripped preview and an optional parent-page title and short excerpt directly to the provider you choose. Provider API charges apply. Every result stays a proposal until an administrator applies alternative text, and the previous value can be restored while that review remains current. The plugin does not summarize page content or automatically publish AI-generated text.
+**Your judgment stays in the loop.** AI findings can be wrong. The plugin does not redact images, identify people, rewrite pages, or automatically publish AI text. Applying a proposal updates the attachment's alternative text; it does not rewrite alt attributes already saved inside posts or page builders. You can restore the previous value while that review remains current and no later edit has changed it.
 
-* **Keep control:** scan first, convert a few images, and review the results before serving the generated copies.
-* **Work at your pace:** use resumable background jobs or selected browser conversions.
-* **See what you saved:** inspect file sizes and savings, search the report, or export it as CSV.
-* **Keep your originals:** remove this plugin's generated copies whenever you need to.
-* **Go smaller:** choose AVIF in the browser converter and compare the results, with WebP or the original image as the fallback.
+Media Review follows the open scan report's filters and search, reviewing up to **10 matching images per run**, one at a time. You choose whether to include parent-page context. It uses the attachment's recorded parent, not every page where an image appears.
 
-The plugin supports **PHP 7.4 and newer**. The optional picowebp backend is detected automatically and stays unavailable on PHP 7.4 or 8.0; the rest of the plugin continues to work.
+**Optional, with your own provider account.** Media Review starts off. Running it sends a temporary, metadata-stripped preview directly to your chosen provider; provider API charges may apply. Previews are limited to 1600 pixels on the longest edge and 4 MiB. WordPress needs a working image editor to prepare them. Conversion works independently without an AI account or API key.
+
+= Get lighter images without a conversion subscription =
+
+Turn your Media Library's **JPEGs, PNGs, thumbnails, and other WordPress image sizes** into WebP or AVIF copies. AVIF can produce smaller files than WebP; compare the actual results for your images and quality settings.
+
+* **Convert on your computer:** the bundled browser encoder creates WebP and AVIF, even when your host cannot write those formats. No desktop app or browser extension.
+* **Let your hosting handle WebP:** run selected images, your whole library, or future uploads through resumable background jobs.
+* **Use the built-in PHP fallback:** on compatible hosts, create WebP without GD, Imagick, or a separate encoder command.
+* **See what you saved:** inspect file sizes and savings, search and filter the report, or export matching rows as CSV.
+* **Choose when to serve the results:** enable generated-image output when you are ready, with fallbacks for AVIF.
+* **Keep your originals:** remove this plugin's generated copies whenever you need to. Files owned by other tools stay untouched.
+
+Everything needed for conversion is included: **no conversion credits, external optimization API, or conversion subscription**. Browser conversion keeps the plugin tab open; server jobs can continue through WP-Cron.
+
+The plugin supports **PHP 7.4 and newer**. The optional built-in PHP encoder requires PHP 8.1+ and zlib and is detected automatically. AVIF conversion runs in the browser; server jobs produce WebP.
 
 = Convert in your browser =
 
@@ -129,10 +144,11 @@ Open **Tools -> IndexLane Safe WebP & AVIF Queue**, scan your library, and try a
 3. Click **Scan Media Library** and select a few eligible images.
 4. Choose **Convert Selected** for server conversion, or **Convert Selected in Browser** for browser conversion. Keep the page open during a browser run.
 5. Review the file sizes, savings, and any skip reasons. Enable **Use generated WebP and AVIF in WordPress image output** in Settings when you're ready to use matching copies on your site.
+6. For optional AI assistance, open **Media Review**, choose your provider and vision model, add its API key, and save. Scan and filter your images, click **Review Visible Images**, then review each proposal before applying alternative text.
 
 == Frequently Asked Questions ==
 
-= Does version 1.3.0 still work on PHP 7.4? =
+= Does the plugin still work on PHP 7.4? =
 
 Yes. The plugin still requires only PHP 7.4. picowebp is an optional conversion backend, not a requirement for using the plugin. On PHP 7.4 or 8.0 its library is not loaded and its setting is disabled automatically. Server conversion through compatible GD or Imagick, browser conversion, reports, and the other plugin features remain available.
 
@@ -254,6 +270,16 @@ The plugin detects source-file and quality-setting changes before regenerating i
 6. See the completed browser run, including the files saved and any copies skipped because they were not smaller.
 
 == Changelog ==
+
+= 1.3.1 =
+
+* Keep saved API keys with their original provider and hide credentials echoed by provider errors.
+* Remove metadata from small Imagick previews, orient previews correctly, and clean up temporary files when a review fails.
+* Preserve alternative text exactly through proposal storage, apply, and restore; reject stale proposals after image or text changes.
+* Reject malformed or incomplete AI results, and allow room for reasoning tokens in Responses API requests.
+* Refresh saved-key controls and replace superseded proposal cards correctly; fix proposal ordering and display useful server errors.
+* Resolve Plugin Check escaping errors and verify AJAX input sanitization and nonce checks.
+* Expand the readme with real AI capabilities, practical uses, and clear conversion and review boundaries.
 
 = 1.3.0 =
 

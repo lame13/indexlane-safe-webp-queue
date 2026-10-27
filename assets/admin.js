@@ -147,6 +147,10 @@
 		var stateClass = ready ? 'is-converted' : 'is-skipped';
 
 		$('#ilswq-ai-save').prop('disabled', mediaReviewBusy);
+		$('#ilswq-ai-settings-form').find('input, select').prop('disabled', mediaReviewBusy);
+		if (mediaReviewConfig && mediaReviewConfig.keySource === 'constant') {
+			$('#ilswq-ai-settings-form').find('[name="api_key"]').prop('disabled', true);
+		}
 		$('#ilswq-ai-state')
 			.removeClass('is-converted is-skipped')
 			.addClass(stateClass)
@@ -569,6 +573,10 @@
 			}
 
 			return response.data;
+		}, function (xhr) {
+			var response = xhr && xhr.responseJSON;
+			var message = response && response.data && response.data.message ? response.data.message : ILSWQ_Admin.strings.requestFailed;
+			return $.Deferred().reject(message).promise();
 		});
 	}
 
@@ -700,7 +708,7 @@
 		}
 
 		rows[index].ai_review_status = review.status;
-		rows[index].has_alt_text = !!review.current_alt;
+		rows[index].has_alt_text = !!String(review.current_alt || '').trim();
 		rows[index].alt_text = review.current_alt || '';
 		upsertRow(rows[index]);
 	}
@@ -728,7 +736,7 @@
 		}
 
 		return [
-			'<article class="ilswq-ai-review is-' + escapeHtml(statusClass) + (review.needs_attention ? ' needs-attention' : '') + '" id="ilswq-ai-review-' + escapeHtml(review.review_id) + '" data-review-id="' + escapeHtml(review.review_id) + '">',
+			'<article class="ilswq-ai-review is-' + escapeHtml(statusClass) + (review.needs_attention ? ' needs-attention' : '') + '" id="ilswq-ai-review-' + escapeHtml(review.review_id) + '" data-attachment-id="' + escapeHtml(review.attachment_id) + '" data-review-id="' + escapeHtml(review.review_id) + '">',
 			'<div class="ilswq-ai-review-head">',
 			review.thumbnail_url ? '<img src="' + escapeHtml(review.thumbnail_url) + '" alt="" width="80" height="80" loading="lazy">' : '',
 			'<div><div class="ilswq-ai-review-title">#' + escapeHtml(review.attachment_id) + ' <a href="' + escapeHtml(review.edit_url) + '">' + escapeHtml(review.title) + '</a></div>',
@@ -752,13 +760,14 @@
 	}
 
 	function upsertAiReview(review) {
-		var selector = '#ilswq-ai-review-' + review.review_id;
+		var selector = '#ilswq-ai-reviews [data-attachment-id="' + parseInt(review.attachment_id, 10) + '"]';
 		var $existing = $(selector);
 		if ($existing.length) {
 			$existing.replaceWith(renderAiReviewCard(review));
 		} else {
 			$('#ilswq-ai-reviews').append(renderAiReviewCard(review));
 		}
+		$('#ilswq-ai-reviews-status').text('');
 	}
 
 	function renderAiReviews(reviews) {
@@ -1543,7 +1552,10 @@
 			mediaReviewConfig = data.mediaReview || mediaReviewConfig;
 			mediaReviewDirty = false;
 			$('#ilswq-ai-settings-form').find('[name="api_key"]').val('');
+			$('#ilswq-ai-settings-form').find('[name="api_key"]').attr('placeholder', mediaReviewConfig.keyPlaceholder || '');
 			$('#ilswq-ai-settings-form').find('[name="remove_key"]').prop('checked', false);
+			$('#ilswq-ai-remove-key').prop('hidden', mediaReviewConfig.keySource !== 'stored');
+			$('#ilswq-ai-key-state').text(mediaReviewConfig.keyState || '');
 			showNotice(ILSWQ_Admin.strings.aiSaved, 'success');
 		}).fail(showAjaxError).always(function () {
 			mediaReviewBusy = false;

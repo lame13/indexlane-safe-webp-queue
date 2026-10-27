@@ -41,6 +41,16 @@ if ( ! function_exists( 'imagecreatetruecolor' ) ) {
 	exit( 3 );
 }
 
+$expected_editor = (string) getenv( 'ILSWQ_AI_EDITOR' );
+if ( in_array( $expected_editor, array( 'GD', 'Imagick' ), true ) ) {
+	add_filter(
+		'wp_image_editors',
+		static function () use ( $expected_editor ) {
+			return array( 'WP_Image_Editor_' . $expected_editor );
+		}
+	);
+}
+
 /**
  * Fail the test.
  *
@@ -79,6 +89,9 @@ function ilswq_ai_create_jpeg( $path ) {
 	}
 	imagejpeg( $image, $path, 88 );
 	imagedestroy( $image );
+	$bytes   = file_get_contents( $path );
+	$comment = 'PRIVATE-REVIEW-METADATA';
+	file_put_contents( $path, substr( $bytes, 0, 2 ) . "\xff\xfe" . pack( 'n', strlen( $comment ) + 2 ) . $comment . substr( $bytes, 2 ) );
 }
 
 /**
@@ -163,7 +176,8 @@ $image_path = trailingslashit( $uploads['path'] ) . wp_unique_filename( $uploads
 ilswq_ai_create_jpeg( $image_path );
 $attachment_id = ilswq_ai_insert_attachment( $image_path, (int) $page_id );
 $created_posts[] = $attachment_id;
-update_post_meta( $attachment_id, '_wp_attachment_image_alt', 'Old product photo' );
+$original_alt = '  Old C:\\photos\\product photo  ';
+update_post_meta( $attachment_id, '_wp_attachment_image_alt', wp_slash( $original_alt ) );
 
 $settings = ILSWQ_AI::save_settings(
 	array(
@@ -182,7 +196,7 @@ ilswq_ai_assert( false === strpos( (string) wp_json_encode( $stored_settings ), 
 ilswq_ai_assert( ! empty( $stored_settings['key_encrypted'] ), 'The API key was not encrypted.' );
 
 $review_result = array(
-	'alt_text'        => 'Navy jacket on a model',
+	'alt_text'        => 'Navy jacket beside a C:\\photos\\catalog label',
 	'decorative'      => false,
 	'context_match'   => 'match',
 	'context_note'    => 'The jacket fits the autumn product guide.',
@@ -204,12 +218,19 @@ $mock_body  = array(
 	),
 );
 
-$mock_http = static function ( $pre, $args, $url ) use ( &$http_calls, &$mock_body ) {
+$during_request = null;
+$mock_status    = 200;
+$mock_http = static function ( $pre, $args, $url ) use ( &$http_calls, &$mock_body, &$during_request, &$mock_status ) {
 	$http_calls[] = array(
 		'url'  => $url,
 		'args' => $args,
 	);
-	return ilswq_ai_http_response( $mock_body );
+	if ( is_callable( $during_request ) ) {
+		$during_request();
+	}
+	$response = ilswq_ai_http_response( $mock_body );
+	$response['response']['code'] = $mock_status;
+	return $response;
 };
 add_filter( 'pre_http_request', $mock_http, 10, 3 );
 
@@ -228,6 +249,11 @@ ilswq_ai_assert( ! empty( $request_body['store'] ) === false, 'The OpenAI reques
 ilswq_ai_assert( 'json_schema' === $request_body['text']['format']['type'], 'The OpenAI request did not use structured output.' );
 ilswq_ai_assert( false !== strpos( (string) $request_body['input'][0]['content'][0]['text'], 'Autumn Product Guide' ), 'The linked page context was not sent.' );
 ilswq_ai_assert( 0 === strpos( (string) $request_body['input'][0]['content'][1]['image_url'], 'data:image/' ), 'The review did not send a temporary image preview.' );
+$preview_data = base64_decode( explode( ',', $request_body['input'][0]['content'][1]['image_url'], 2 )[1] );
+ilswq_ai_assert( false === strpos( $preview_data, 'PRIVATE-REVIEW-METADATA' ), 'Private source metadata reached the provider.' );
+$stored_review = get_post_meta( $attachment_id, ILSWQ_AI::REVIEW_META, true );
+ilswq_ai_assert( $review_result['alt_text'] === $stored_review['alt_text'], 'Proposal storage removed backslashes.' );
+ilswq_ai_assert( $original_alt === $stored_review['alt_at_review'], 'Proposal storage changed the original alternative text.' );
 
 $scanner = new ILSWQ_Scanner();
 $row     = $scanner->scan_attachment( $attachment_id, ILSWQ_Settings::get() );
@@ -246,14 +272,68 @@ if ( is_wp_error( $restored ) ) {
 	ilswq_ai_fail( 'Restoring the review failed: ' . $restored->get_error_message() );
 }
 ilswq_ai_assert( 'restored' === $restored['status'], 'The review was not marked restored.' );
-ilswq_ai_assert( 'Old product photo' === ILSWQ_AI::current_alt( $attachment_id ), 'The previous alternative text was not restored.' );
+ilswq_ai_assert( $original_alt === ILSWQ_AI::current_alt( $attachment_id ), 'The previous alternative text was not restored exactly.' );
+
+// Replaced images and concurrent edits must invalidate the pending proposal.
+$review = ILSWQ_AI::review_attachment( $attachment_id );
+ilswq_ai_assert( ! is_wp_error( $review ), 'Could not prepare the stale-image regression.' );
+$original_bytes = file_get_contents( $image_path );
+file_put_contents( $image_path, $original_bytes . 'changed' );
+$stale = ILSWQ_AI::apply_review( $attachment_id, $review['review_id'] );
+ilswq_ai_assert( is_wp_error( $stale ) && 'ilswq_ai_conflict' === $stale->get_error_code(), 'A proposal was applied to a replaced source image.' );
+file_put_contents( $image_path, $original_bytes );
+update_post_meta( $attachment_id, '_wp_attachment_image_alt', 'Newer manual text' );
+$stale = ILSWQ_AI::apply_review( $attachment_id, $review['review_id'] );
+ilswq_ai_assert( is_wp_error( $stale ), 'A proposal overwrote a newer manual edit.' );
+update_post_meta( $attachment_id, '_wp_attachment_image_alt', wp_slash( $original_alt ) );
+
+$during_request = static function () use ( $attachment_id ) {
+	update_post_meta( $attachment_id, '_wp_attachment_image_alt', 'Edited during request' );
+};
+$stale = ILSWQ_AI::review_attachment( $attachment_id );
+ilswq_ai_assert( is_wp_error( $stale ), 'A review accepted alternative text edited during its request.' );
+$during_request = static function () use ( $image_path, $original_bytes ) {
+	file_put_contents( $image_path, $original_bytes . 'changed during request' );
+};
+$stale = ILSWQ_AI::review_attachment( $attachment_id );
+ilswq_ai_assert( is_wp_error( $stale ), 'A review accepted a source replaced during its request.' );
+$during_request = null;
+file_put_contents( $image_path, $original_bytes );
+update_post_meta( $attachment_id, '_wp_attachment_image_alt', wp_slash( $original_alt ) );
+
+// Malformed provider output must not become an empty or misleading proposal.
+$valid_body = $mock_body;
+foreach ( array( array( 'alt_text', null ), array( 'alt_text', '' ), array( 'context_note', array() ), array( 'privacy_note', false ), array( 'privacy_flags', array( 'unsupported' ) ) ) as $invalid ) {
+	$bad_result = $review_result;
+	$bad_result[ $invalid[0] ] = $invalid[1];
+	$mock_body['output'][0]['content'][0]['text'] = wp_json_encode( $bad_result );
+	$bad_review = ILSWQ_AI::review_attachment( $attachment_id );
+	ilswq_ai_assert( is_wp_error( $bad_review ) && 'ilswq_ai_schema' === $bad_review->get_error_code(), 'Invalid provider field accepted: ' . $invalid[0] );
+}
+$mock_body = $valid_body;
+$mock_body['status'] = 'incomplete';
+ilswq_ai_assert( is_wp_error( ILSWQ_AI::review_attachment( $attachment_id ) ), 'Incomplete provider output became a proposal.' );
+$mock_status = 401;
+$mock_body = array( 'error' => array( 'message' => 'Invalid API key: sk-test-secret-value' ) );
+$error = ILSWQ_AI::review_attachment( $attachment_id );
+ilswq_ai_assert( is_wp_error( $error ) && false === strpos( $error->get_error_message(), 'sk-test-secret-value' ), 'Provider error exposed the API key.' );
+$mock_status = 200;
+$mock_body = $valid_body;
+
+$before_switch = get_option( ILSWQ_AI::OPTION );
+try {
+	ILSWQ_AI::save_settings( array( 'enabled' => 1, 'provider' => 'xai', 'model' => 'grok-test-vision', 'api_key' => '' ) );
+	ilswq_ai_fail( 'Switching providers reused the previous provider key.' );
+} catch ( InvalidArgumentException $exception ) {
+	ilswq_ai_assert( $before_switch === get_option( ILSWQ_AI::OPTION ), 'A failed provider switch changed the saved settings.' );
+}
 
 $settings = ILSWQ_AI::save_settings(
 	array(
 		'enabled'     => 1,
 		'provider'    => 'xai',
 		'model'       => 'grok-test-vision',
-		'api_key'     => '',
+		'api_key'     => 'xai-test-secret-value',
 		'use_context' => 0,
 		'batch_size'  => 5,
 	)
@@ -265,7 +345,9 @@ if ( is_wp_error( $xai_review ) ) {
 }
 $last_call = $http_calls[ count( $http_calls ) - 1 ];
 ilswq_ai_assert( 'https://api.x.ai/v1/responses' === $last_call['url'], 'Grok reviewed through the wrong endpoint.' );
-ilswq_ai_assert( 'Bearer sk-test-secret-value' === $last_call['args']['headers']['Authorization'], 'The stored key was not retained when switching providers.' );
+ilswq_ai_assert( 'Bearer xai-test-secret-value' === $last_call['args']['headers']['Authorization'], 'The new provider did not receive its own key.' );
+$xai_body = json_decode( $last_call['args']['body'], true );
+ilswq_ai_assert( false === strpos( $xai_body['input'][0]['content'][0]['text'], 'Autumn Product Guide' ), 'Context was sent while context sharing was disabled.' );
 
 $dismissed = ILSWQ_AI::dismiss_review( $attachment_id, $xai_review['review_id'] );
 if ( is_wp_error( $dismissed ) ) {
@@ -278,7 +360,7 @@ $settings = ILSWQ_AI::save_settings(
 		'enabled'     => 1,
 		'provider'    => 'anthropic',
 		'model'       => 'claude-test-vision',
-		'api_key'     => '',
+		'api_key'     => 'claude-test-secret-value',
 		'use_context' => 1,
 		'batch_size'  => 5,
 	)
@@ -308,10 +390,28 @@ if ( is_wp_error( $claude_review ) ) {
 $last_call = $http_calls[ count( $http_calls ) - 1 ];
 $claude_body = json_decode( (string) $last_call['args']['body'], true );
 ilswq_ai_assert( 'https://api.anthropic.com/v1/messages' === $last_call['url'], 'Claude reviewed through the wrong endpoint.' );
-ilswq_ai_assert( 'sk-test-secret-value' === $last_call['args']['headers']['x-api-key'], 'The Claude x-api-key header was not set.' );
+ilswq_ai_assert( 'claude-test-secret-value' === $last_call['args']['headers']['x-api-key'], 'The Claude x-api-key header was not set.' );
 ilswq_ai_assert( 'record_media_review' === $claude_body['tool_choice']['name'], 'Claude did not force the structured review tool.' );
 ilswq_ai_assert( true === $claude_review['decorative'] && '' === $claude_review['alt_text'], 'The decorative image result was not preserved.' );
 ilswq_ai_assert( true === $claude_review['needs_attention'], 'The privacy finding did not need attention.' );
+
+$applied = ILSWQ_AI::apply_review( $attachment_id, $claude_review['review_id'] );
+ilswq_ai_assert( ! is_wp_error( $applied ) && '' === ILSWQ_AI::current_alt( $attachment_id ), 'A decorative proposal did not clear alternative text.' );
+update_post_meta( $attachment_id, '_wp_attachment_image_alt', 'Keep this newer text' );
+ilswq_ai_assert( is_wp_error( ILSWQ_AI::undo_review( $attachment_id, $claude_review['review_id'] ) ), 'Restore overwrote a later manual edit.' );
+
+// A broken encrypted key must not leak a temporary preview or leave a lock.
+$broken_settings = get_option( ILSWQ_AI::OPTION );
+$broken_settings['key_encrypted'] = 'damaged';
+update_option( ILSWQ_AI::OPTION, $broken_settings, false );
+$previews_before = glob( get_temp_dir() . 'ilswq-ai-review-*' );
+$broken_review = ILSWQ_AI::review_attachment( $attachment_id );
+ilswq_ai_assert( is_wp_error( $broken_review ), 'A damaged key was accepted.' );
+ilswq_ai_assert( $previews_before === glob( get_temp_dir() . 'ilswq-ai-review-*' ), 'A failed key lookup left a temporary preview.' );
+ilswq_ai_assert( false === get_option( ILSWQ_AI::REVIEW_LOCK . $attachment_id ), 'A failed review left its lock.' );
+
+ILSWQ_AI::save_settings( array( 'provider' => 'openai', 'enabled' => 0 ) );
+ilswq_ai_assert( empty( get_option( ILSWQ_AI::OPTION )['key_encrypted'] ), 'A disabled provider switch retained another provider key.' );
 
 remove_filter( 'pre_http_request', $mock_http, 10 );
 

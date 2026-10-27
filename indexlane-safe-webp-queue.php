@@ -2,8 +2,8 @@
 /**
  * Plugin Name: IndexLane Safe WebP & AVIF Queue
  * Plugin URI: https://indexlane.dev/plugins/safe-webp-queue
- * Description: Create WebP and AVIF copies while keeping originals. Convert on your hosting or in your browser, with no cloud service or API key.
- * Version: 1.3.0
+ * Description: Create WebP and AVIF copies and use optional AI to draft alt text, check image context, and flag visible privacy concerns. Keep originals and approve every text change.
+ * Version: 1.3.1
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: IndexLane
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ILSWQ_VERSION', '1.3.0' );
+define( 'ILSWQ_VERSION', '1.3.1' );
 define( 'ILSWQ_FILE', __FILE__ );
 define( 'ILSWQ_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ILSWQ_URL', plugin_dir_url( __FILE__ ) );

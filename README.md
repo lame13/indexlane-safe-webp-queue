@@ -1,33 +1,49 @@
 # IndexLane Safe WebP & AVIF Queue
 
-**Smaller images, without another subscription.** WebP and AVIF, no credits, no API key.
+**Smaller images. Smarter media reviews. You stay in control.**
 
-Your hosting plan may be light on image tools. Your images don't have to stay heavy. Create WebP or AVIF copies right from your WordPress admin, without paying for an image-conversion API or asking your host to install missing libraries. Keep your original JPEGs and PNGs, and choose when to serve the generated copies.
+Create WebP and AVIF copies of your WordPress images, and use optional AI to draft alternative text, flag possible page-context mismatches, and spot visible privacy concerns. Keep your originals, see the actual savings, and approve every text change yourself.
 
-Shared hosting can lack WebP support or enough PHP memory for image conversion. Enable **Convert images in the browser** and your computer does the encoding with the plugin's bundled WebAssembly encoder. Each source comes from your own site; each finished image goes back there. There is no desktop app or browser extension to install.
+## Give your Media Library a second pair of eyes
 
-## Optional Media Review
+Bring your own **OpenAI, Claude, or Grok API key** and choose a vision-capable model. **Media Review** helps with the work that compression alone cannot do:
 
-If you already use OpenAI, Claude, or Grok, **Media Review** can inspect selected images for page-context mismatches, clearly visible privacy exposure, decorative-image classification, and missing alternative text. It is off by default and does not change the conversion workflow.
+- **Draft useful alt text.** Get a concise proposal for an image, with the existing text beside it. Focus on missing alt text or review images that already have it.
+- **Check whether an image fits its page.** Optionally compare the image with its attachment parent's title and a short excerpt to flag possible mismatches.
+- **Catch visible privacy concerns.** Review screenshots and other images for readable email addresses, phone numbers, names, account identifiers, credentials, and other sensitive content.
+- **Review decorative-image suggestions.** Consider an empty alt value when an image adds no information.
+- **Make the final call.** Apply or dismiss each proposal. Restore the previous alt text while the review remains current and nobody has edited the value afterward.
 
-Review uses your own provider API key and sends one temporary, metadata-stripped preview at a time. The preview is resized to at most 1600 pixels and 4 MiB. You can optionally include the linked page title and up to 700 characters of plain-text context. Every result becomes a proposal; an administrator must explicitly apply alternative text, and the previous value can be restored if it has not been edited since.
+A product photo that may not match its page. A screenshot with an email address in view. A library full of blank alt fields. Media Review gives you specific findings to check and text to work from, right inside WordPress.
 
-Stored keys are encrypted with AES-256-GCM using WordPress salts. Defining `ILSWQ_AI_API_KEY` in `wp-config.php` keeps the key out of the database. The key is never sent to the browser.
+Review follows the current scan report's filters and search, with **up to 10 matching images per run**, processed one at a time. Context comes from the attachment's recorded parent, not every page where the image appears. AI findings can be wrong; the plugin does not redact images, identify people, or automatically publish text. Applying alt text changes attachment metadata, not image markup already saved in posts or page builders.
 
-Choose **WebP** or **AVIF** under **Browser conversion format**. AVIF can produce smaller files, depending on the image and quality settings. It is offered through a `<picture>` element when all responsive candidates have matching AVIF copies; WebP or your original image remains the fallback. AVIF is browser-only in this version: GD and Imagick cannot be relied on to encode AVIF on shared hosting.
+## Your provider, your choice
 
-If WordPress has GD or Imagick with WebP support, server conversion can handle selected images, the whole library, and future uploads in background batches. On PHP 8.1+ the bundled pure-PHP encoder does the same even when no image editor can write WebP. The standalone `cwebp` command is not used by this version.
+Media Review starts off. When enabled and run, it sends a temporary, metadata-stripped preview directly to the provider you select. Previews are capped at 1600 pixels on the longest edge and 4 MiB. Optional page context includes the parent title and up to 700 characters of plain text. WordPress needs a working image editor to prepare previews, and provider API charges may apply.
+
+Stored API keys are encrypted with AES-256-GCM using WordPress salts. Define `ILSWQ_AI_API_KEY` in `wp-config.php` to keep the key out of the database. Saved keys stay out of browser configuration; changing providers requires that provider's key. Image conversion works independently without an AI account or API key.
+
+## Lighter images without a conversion subscription
+
+Convert JPEG and PNG attachments, including thumbnails and other generated sizes. **No conversion credits, external optimization API, or desktop software.** Everything needed for conversion ships with the plugin.
+
+- **Browser WebP and AVIF:** use your computer's resources through the bundled WebAssembly encoder, even when the host cannot create those formats. Keep the plugin tab open during the run.
+- **Background WebP:** use GD or Imagick for selected images, whole-library jobs, and automatic uploads. Jobs save progress and can continue through WP-Cron, depending on traffic or a configured cron runner.
+- **Pure-PHP WebP fallback:** on PHP 8.1+ with zlib, the optional bundled encoder can run background conversion without a WebP-capable image editor. It is slower and limited to smaller images.
+
+Search and filter the report, export matching rows as CSV, and manage exclusions from the Media Library. See real file sizes and savings. New copies that are not smaller are skipped by default. Originals and files owned by other tools stay protected.
+
+Enable optional frontend serving when you are ready. WebP replaces matching URLs in normal WordPress image output. AVIF is offered through a `<picture>` element when all responsive candidates have matching copies, with WebP or the original as fallback. AVIF conversion runs in the browser; server jobs produce WebP.
 
 ## Try it on a few images
 
 1. Open **Tools → IndexLane Safe WebP & AVIF Queue** and check server support. Enable browser conversion if you need it.
 2. Scan the library and select a few images. Use **Convert Selected** for a server job or **Convert Selected in Browser** to use your computer.
-3. Review file sizes, savings, and any skip reasons. Both methods include generated attachment sizes.
-4. Enable optional frontend serving when you want matching WebP and AVIF copies used in normal WordPress image output.
+3. Review savings and skip reasons, then enable optional frontend serving when you want to use the generated copies.
+4. To try AI assistance, save your provider, vision model, and API key in **Media Review**. Filter the scan report, choose **Review Visible Images**, and review each proposal before applying text.
 
-Keep the tab open for browser conversion, including AVIF runs. Server jobs save progress and can continue through WP-Cron, which depends on site traffic or a configured cron runner. Whole-library jobs and automatic uploads need server WebP support and always produce WebP.
-
-Search and filter the report, export matching rows as CSV, or manage status and exclusions from the Media Library list. Stored totals cover both conversion methods. Originals stay in place, foreign output files are protected, and new copies that are not smaller are skipped by default.
+The plugin supports **PHP 7.4+**. Only the optional pure-PHP encoder requires PHP 8.1+. Keep the tab open for browser conversion and AI review runs.
 
 [Plugin details](https://indexlane.dev/plugins/safe-webp-queue) · [Full description and FAQs](readme.txt)
 

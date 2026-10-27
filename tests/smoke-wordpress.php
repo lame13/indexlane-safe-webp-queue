@@ -38,8 +38,8 @@ if ( ! ILSWQ_Capabilities::has_webp_writer() ) {
 }
 
 $plugin_data = get_plugin_data( WP_PLUGIN_DIR . '/indexlane-safe-webp-queue/indexlane-safe-webp-queue.php', false, false );
-if ( 'IndexLane Safe WebP & AVIF Queue' !== $plugin_data['Name'] || '1.3.0' !== $plugin_data['Version'] || ILSWQ_VERSION !== $plugin_data['Version'] || ! empty( $plugin_data['UpdateURI'] ) ) {
-	fwrite( STDERR, "Release plugin metadata does not match 1.3.0.\n" );
+if ( 'IndexLane Safe WebP & AVIF Queue' !== $plugin_data['Name'] || '1.3.1' !== $plugin_data['Version'] || ILSWQ_VERSION !== $plugin_data['Version'] || ! empty( $plugin_data['UpdateURI'] ) ) {
+	fwrite( STDERR, "Release plugin metadata does not match 1.3.1.\n" );
 	exit( 1 );
 }
 

@@ -8,7 +8,7 @@ let source = fs.readFileSync(sourcePath, 'utf8');
 
 source = source.replace(
 	'\n\tinitializeBrowserSupport();\n\tupdateMediaReviewControls();\n\tloadAiReviews();\n\trenderQueueStatus(queueStatus);\n\tscheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);\n})(jQuery);',
-	'\n\tglobalThis.ILSWQ_TestHooks = { csvEscape: csvEscape, formatString: formatString, cleanupQueue: cleanupQueue, renderQueueStatus: renderQueueStatus, renderTotals: renderTotals, matchesReportRow: matchesReportRow, exportCsv: exportCsv, getSelectedEligibleIds: getSelectedEligibleIds, aiReviewCandidates: aiReviewCandidates, renderAiReviewCard: renderAiReviewCard, detectBrowserSupport: detectBrowserSupport, browserSelection: browserSelection, browserStartDisabled: browserStartDisabled, formatBytes: formatBytes, recordBrowserOutcome: recordBrowserOutcome, renderBrowserState: renderBrowserState, setQueueStatus: function (next) { queueStatus = next; }, browserSupportState: function () { return browserSupport; }, beginBrowserTotals: function (total) { browserTotals = { converted: 0, skipped: 0, failed: 0, savedBytes: 0, done: 0, total: total }; return browserTotals; }, browserRunTotals: function () { return browserTotals; }, setBrowserFlags: function (next) { if (next.running !== undefined) { browserRunning = next.running; } if (next.finished !== undefined) { browserFinished = next.finished; } if (next.stopped !== undefined) { browserStopped = next.stopped; } }, serverWriter: function () { return serverWriter; }, setReport: function (nextRows, filter, query) { rows = nextRows; rowMap = {}; rows.forEach(function (row, index) { rowMap[row.id] = index; }); activeFilter = filter; searchQuery = query; } };\n\tbrowserSupport = browserEnabled ? detectBrowserSupport() : { ok: false, insecure: false, missing: [] };\n\tupdateMediaReviewControls();\n\tloadAiReviews();\n\trenderQueueStatus(queueStatus);\n\tscheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);\n})(jQuery);'
+	'\n\tglobalThis.ILSWQ_TestHooks = { ajax: ajax, csvEscape: csvEscape, formatString: formatString, cleanupQueue: cleanupQueue, renderQueueStatus: renderQueueStatus, renderTotals: renderTotals, matchesReportRow: matchesReportRow, exportCsv: exportCsv, getSelectedEligibleIds: getSelectedEligibleIds, aiReviewCandidates: aiReviewCandidates, renderAiReviewCard: renderAiReviewCard, detectBrowserSupport: detectBrowserSupport, browserSelection: browserSelection, browserStartDisabled: browserStartDisabled, formatBytes: formatBytes, recordBrowserOutcome: recordBrowserOutcome, renderBrowserState: renderBrowserState, setQueueStatus: function (next) { queueStatus = next; }, browserSupportState: function () { return browserSupport; }, beginBrowserTotals: function (total) { browserTotals = { converted: 0, skipped: 0, failed: 0, savedBytes: 0, done: 0, total: total }; return browserTotals; }, browserRunTotals: function () { return browserTotals; }, setBrowserFlags: function (next) { if (next.running !== undefined) { browserRunning = next.running; } if (next.finished !== undefined) { browserFinished = next.finished; } if (next.stopped !== undefined) { browserStopped = next.stopped; } }, serverWriter: function () { return serverWriter; }, setReport: function (nextRows, filter, query) { rows = nextRows; rowMap = {}; rows.forEach(function (row, index) { rowMap[row.id] = index; }); activeFilter = filter; searchQuery = query; } };\n\tbrowserSupport = browserEnabled ? detectBrowserSupport() : { ok: false, insecure: false, missing: [] };\n\tupdateMediaReviewControls();\n\tloadAiReviews();\n\trenderQueueStatus(queueStatus);\n\tscheduleQueueTick(queueStatus && queueStatus.has_runnable_work ? 150 : 5000);\n})(jQuery);'
 );
 
 if (!source.includes('ILSWQ_TestHooks')) {
@@ -95,6 +95,17 @@ class JQueryPromise extends Promise {
 	fail(callback) { return this.catch(callback); }
 	always(callback) { return this.finally(callback); }
 }
+
+jQuery.Deferred = function () {
+	let resolve;
+	let reject;
+	const promise = new JQueryPromise(function (res, rej) { resolve = res; reject = rej; });
+	return {
+		resolve: function (value) { resolve(value); return this; },
+		reject: function (value) { reject(value); return this; },
+		promise: function () { return promise; }
+	};
+};
 
 jQuery.post = function (_url, data) {
 	requests.push(Object.assign({}, data));
@@ -530,6 +541,21 @@ context.ILSWQ_TestHooks.cleanupQueue(0, 0, true).then(function () {
 		return new Promise(function (resolve) { setImmediate(resolve); });
 	}).then(function () {
 		assertEqual(reloads, 2, 'Disabling PHP conversion did not refresh backend controls');
+		return [
+			{ status: 400, responseJSON: { success: false, data: { message: 'Enter a provider API key.' } } },
+			{ status: 409, responseJSON: { success: false, data: { message: 'The image changed after this review.' } } },
+			{ status: 0 }
+		].reduce(function (previous, xhr) {
+			return previous.then(function () {
+				jQuery.post = function () { return JQueryPromise.reject(xhr); };
+				return context.ILSWQ_TestHooks.ajax('ilswq_ai_review', {}).then(function () {
+					throw new Error('An HTTP error was treated as success');
+				}, function (message) {
+					assertEqual(message, xhr.responseJSON ? xhr.responseJSON.data.message : context.ILSWQ_Admin.strings.requestFailed, 'The AJAX failure lost its useful message');
+				});
+			});
+		}, Promise.resolve());
+	}).then(function () {
 		console.log('Admin JavaScript tests passed.');
 	});
 }).catch(function (error) {
